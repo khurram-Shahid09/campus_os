@@ -70,7 +70,7 @@ export default async function Setup() {
                 <tbody>
                   {classes.map((c) => (
                     <tr key={c.id} className="border-t border-line">
-                      <td className="py-1.5 pr-3 font-medium">{c.name}</td>
+                      <td className="py-1.5 pr-3 font-medium">{c.name}<input type="hidden" name={`name:${c.id}`} value={c.name} /></td>
                       {heads.map((h) => (
                         <td key={h.id} className="px-2 py-1.5">
                           <input type="hidden" name={`was:${c.id}:${h.id}`} value={rs(c.fees[h.id])} />

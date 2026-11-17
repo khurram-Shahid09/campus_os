@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { buildImportPreview, formatMoney, isStaffRole, periodLabel, toMinor, type ColumnMap } from "@campusos/core";
+import { buildImportPreview, checkFeeIncrease, formatMoney, isStaffRole, periodLabel, toMinor, type ColumnMap } from "@campusos/core";
 import * as cmd from "@campusos/db/app";
 import { action } from "@/lib/auth";
 import type { FormState } from "@/components/form";
@@ -53,6 +53,7 @@ export async function addFeeHeadAction(_: FormState, f: FormData): Promise<FormS
 
 /** Inputs named fee:<classId>:<headId> hold rupee amounts. Saves only fields that changed. */
 export async function saveClassFeesAction(_: FormState, f: FormData): Promise<FormState> {
+  const warnings: string[] = [];
   const r = await action("school.setup", async (tx, ctx) => {
     let n = 0;
     for (const [k, v] of f.entries()) {
@@ -61,12 +62,24 @@ export async function saveClassFeesAction(_: FormState, f: FormData): Promise<Fo
       const before = str(f, `was:${m[1]}:${m[2]}`);
       if (String(v).trim() === before) continue;
       const amountMinor = rupees(String(v)) ?? 0;
+      const prev = rupees(before);
+      // fee rule check (docs/04, D12): flag rises above the usual 5% yearly limit; the owner decides
+      if (prev) {
+        const c = checkFeeIncrease(prev, amountMinor);
+        if (c.verdict !== "ok") warnings.push(`${str(f, `name:${m[1]}`) || "A class"} goes up ${c.increasePct}%${c.verdict === "over_limit" ? ", above the 8% most regulators allow even with permission" : ", above 5%: usually needs permission"}`);
+      }
       await cmd.setClassFee(tx, ctx, { classId: m[1]!, feeHeadId: m[2]!, amountMinor });
       n++;
     }
     return n;
   });
-  return done(r, r.result ? `Saved ${r.result} fee${r.result === 1 ? "" : "s"}.` : "No changes.", "/app/setup");
+  if (r.error) return { error: r.error };
+  const msg = r.result ? `Saved ${r.result} fee${r.result === 1 ? "" : "s"}.` : "No changes.";
+  if (warnings.length) {
+    revalidatePath("/app/setup");
+    return { error: `${msg} Fee rule check: ${warnings.join("; ")}. Check your province's private school regulator rules before sending slips.` };
+  }
+  return done(r, msg, "/app/setup");
 }
 
 // ---------- team & staff ----------
