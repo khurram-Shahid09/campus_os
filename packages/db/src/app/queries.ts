@@ -148,7 +148,8 @@ export async function getFamily(tx: Tx, ctx: AppCtx, familyId: string) {
 export async function searchFamilies(tx: Tx, ctx: AppCtx, q: string, limit = 8) {
   const term = q.trim();
   if (term.length < 2) return [];
-  const digits = term.replace(/\D/g, "").replace(/^0/, "");
+  // phone search only when the clerk typed a number (so "DGS-1012" doesn't match phones containing 1012)
+  const digits = /^[\d\s+()-]+$/.test(term) ? term.replace(/\D/g, "").replace(/^0/, "") : "";
   const rows = await tx.execute<{ family_id: string; guardian: string; phone: string; children: string; balance: string }>(sql`
     select f.id as family_id, coalesce(g.name, f.display_name) as guardian, coalesce(g.phone_e164, '') as phone,
       string_agg(distinct st.name || ' (' || st.admission_no || ')', ', ') as children,
@@ -157,11 +158,12 @@ export async function searchFamilies(tx: Tx, ctx: AppCtx, q: string, limit = 8) 
     left join ${s.guardians} g on g.id = f.primary_guardian_id
     join ${s.students} st on st.family_id = f.id and st.status = 'active'
     where f.school_id = ${ctx.schoolId} and (
-      st.name ilike ${"%" + term + "%"} or g.name ilike ${"%" + term + "%"} or st.admission_no = ${term}
+      st.name ilike ${"%" + term + "%"} or g.name ilike ${"%" + term + "%"} or lower(st.admission_no) = lower(${term})
       ${digits.length >= 4 ? sql`or g.phone_e164 like ${"%" + digits + "%"}` : sql``}
     )
     group by f.id, g.name, f.display_name, g.phone_e164
-    order by guardian limit ${limit}
+    -- an exact GR number match comes first
+    order by bool_or(lower(st.admission_no) = lower(${term})) desc, guardian limit ${limit}
   `);
   return rows.map((r) => ({ familyId: r.family_id, guardian: r.guardian, phone: r.phone, children: r.children, balanceMinor: Number(r.balance) }));
 }
