@@ -8,7 +8,8 @@ a daily WhatsApp brief on their school without them having to log in.
 - Planning docs: [docs/00-index.md](docs/00-index.md)
 - Agent/developer guide: [CLAUDE.md](CLAUDE.md)
 
-Status: **Stage 1 of the working system is built** (real schools can sign up and run fees and attendance).
+Status: **Stages 1–2 of the working system are built**: schools sign up and run fees and attendance, and
+reminders, the Morning Brief and the dropout check run by themselves.
 The sales demo stays at `/demo`. See [docs/13-roadmap-and-phases.md](docs/13-roadmap-and-phases.md) and
 decisions D15/D16 in [docs/17](docs/17-decisions-and-open-questions.md).
 
@@ -23,8 +24,25 @@ pnpm install
 pnpm db:migrate               # create tables + row-level security
 pnpm db:seed                  # optional: synthetic "Demo Grammar School (DEMO)" for /demo
 pnpm build && pnpm --filter @campusos/web start
+pnpm worker                   # second terminal: scheduled jobs (reminders, Morning Brief, dropout check)
 # working app: http://localhost:3000/login     sales demo: http://localhost:3000/demo
 ```
+
+## Automation (Stage 2, `apps/worker`)
+
+The worker runs next to the web app and keeps its queue in the same Postgres (pg-boss, schema `pgboss`).
+Every 10 minutes it checks each school's local time and runs what is due, once per school per day
+(`job_runs` table; restarts or a second worker never send twice):
+
+| Job | When | What it does |
+|---|---|---|
+| Dropout check | 02:00 daily | Rules-based risk score per student (attendance drop, days absent in a row, overdue fees). High/watch students go to **Calls**. |
+| Morning Brief | 07:00 daily | Yesterday's fees, attendance, staff, students at risk, approvals waiting. Shown on **Home → Morning Brief**; goes to the owner's WhatsApp once the API is connected. |
+| Fee reminders | 10:00 Mon–Sat | Due + 3 days: polite WhatsApp. + 10 days: firmer one. + 20 days: family goes on the principal's **Calls** list. One message per family about the total, ≥ 5 days apart, paused by a promise to pay. |
+
+A payment counts as "recovered by CampusOS" only if it comes within 7 days after a reminder that was actually
+sent (tapped in the outbox), not merely queued. Owners can switch reminders/brief off or press **Run now** on the
+**Automation** page. `pnpm --filter @campusos/worker run-once [job]` runs due jobs once from the terminal.
 
 ## The working app (`/app`)
 
@@ -40,9 +58,9 @@ Flow for a new school: log in → create school → upload the student register 
 father's phone, class fees taken from the register) → check fees in Setup → give staff logins → make the month's
 fee slips → take payments at the cash counter → teachers mark attendance → send the WhatsApp outbox.
 
-Not connected yet (Stage 2–3): WhatsApp/SMS sending (login codes show on screen only with `OTP_DEV_SHOW=1`;
-parent messages wait in the outbox and are sent with one tap from a staff phone), the background worker (scheduled
-reminders, Morning Brief, risk scores), AI receipt reading, voice notes, opening the app with no internet at all
+Not connected yet (Stage 3): WhatsApp/SMS sending (login codes show on screen only with `OTP_DEV_SHOW=1`;
+parent messages wait in the outbox and are sent with one tap from a staff phone), AI receipt reading, voice notes
+(parents marked "prefers voice" get the Urdu text for now), opening the app with no internet at all
 (a register already open keeps working offline). Hosting/backups are Stage 4.
 
 ## Tests
@@ -54,7 +72,9 @@ pnpm --filter @campusos/demo-video e2e      # browser test: owner, clerk and tea
 
 - `packages/core`: fee ageing, payment allocation and reversal, invoice run, register import, phones, roles,
   fee rule check, reminder attribution, risk score, savings, Morning Brief, templates.
-- `packages/db`: tenant isolation with RLS (a school cannot read, write or update another school's rows),
+- `packages/core` also covers the reminder ladder (steps, spacing, promises, Sundays, no-phone families).
+- `packages/db`: the scheduler over simulated days (runs once a day, ladder steps, attribution only for sent
+  reminders, promise takes a family off the call list, switching reminders off); tenant isolation with RLS (a school cannot read, write or update another school's rows),
   login codes, import → invoice run → payment → reversal, offline attendance re-sends.
 - The browser test creates "E2E Test School" with test numbers 0309 0000101–103 and deletes it afterwards
   (set `KEEP=1` to keep it). Screenshots go to `demo-videos/e2e/`.
@@ -89,6 +109,7 @@ the first time, `pnpm --filter @campusos/demo-video exec playwright install chro
 
 ```
 apps/web            Next.js 16 app: working app under /app, login, sales demo under /demo
+apps/worker         scheduled jobs (pg-boss): dropout check, Morning Brief, fee reminders
 packages/core       pure domain logic + tests
 packages/db         Drizzle schema, migrations (incl. RLS), app/ (auth, commands, queries, tests), demo seed
 tools/demo-video    Playwright: role videos (record) and the end-to-end browser test (e2e)

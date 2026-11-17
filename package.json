@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "pnpm --filter @campusos/web dev",
     "build": "pnpm --filter @campusos/web build",
+    "worker": "pnpm --filter @campusos/worker start",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "db:generate": "pnpm --filter @campusos/db generate",
