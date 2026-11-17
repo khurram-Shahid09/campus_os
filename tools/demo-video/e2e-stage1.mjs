@@ -222,14 +222,14 @@ try {
     await shot(owner, "owner-home");
   });
 
-  await check("WhatsApp outbox has fee slips, the receipt and 2 absence alerts, with wa.me links", async () => {
+  await check("WhatsApp log shows 7 automatic messages (4 fee slips, receipt, 2 absences), clearly marked simulated", async () => {
     await owner.goto(`${BASE}/app/outbox`);
-    const box = owner.getByTestId("outbox");
-    await expectText(box, /Receipt/);
+    await owner.getByTestId("wa-simulated").waitFor();
+    const n = await owner.getByTestId("message-log").locator(":scope > li").count();
+    if (n !== 7) throw new Error(`expected 7 messages, got ${n}`);
     const links = await owner.getByTestId("wa-send").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
-    if (links.length !== 4 + 1 + 2) throw new Error(`expected 7 messages, got ${links.length}`);
     if (!links.every((h) => /^https:\/\/wa\.me\/92300555000\d\?text=/.test(h))) throw new Error("bad wa.me link");
-    await shot(owner, "outbox");
+    await shot(owner, "whatsapp-log");
   });
 
   await check("owner reverses the payment; family balance goes back up", async () => {
@@ -243,6 +243,44 @@ try {
     await owner.getByRole("link", { name: "Ali Hassan" }).click();
     await owner.getByRole("link", { name: /Family fee account/ }).click();
     await expectText(owner.getByTestId("family-balance"), /Rs 6,600/);
+  });
+
+  await check("clerk adds a payment screenshot: AI reads it, code suggests the Ahmed family, clerk approves", async () => {
+    const shotPage = await browser.newPage({ viewport: { width: 390, height: 640 } });
+    const today = new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Karachi" });
+    await shotPage.setContent(`<body style="font-family:Arial;margin:0;background:#f2f4f7"><div style="background:#7a1f3d;color:#fff;padding:20px;font-size:18px">Mobile Wallet</div>
+      <div style="background:#fff;margin:16px;padding:18px;border-radius:12px"><p style="color:#0a7d3e;font-weight:700;text-align:center">Transaction Successful</p>
+      <p style="font-size:32px;font-weight:800;text-align:center">Rs. 3,600</p>
+      <p>Sent to: E2E Test School</p><p>From: Ahmed Nawaz</p><p>Date: ${today}</p><p>TID: 05${Date.now() % 100000000}</p></div></body>`);
+    const png = await shotPage.screenshot();
+    await shotPage.close();
+    await clerk.goto(`${BASE}/app/proofs`);
+    await clerk.getByTestId("proof-file").setInputFiles({ name: "wallet.png", mimeType: "image/png", buffer: png });
+    await clerk.getByTestId("proof-submit").click();
+    await clerk.getByTestId("proof-card").first().waitFor({ timeout: 180000 });
+    const card = clerk.getByTestId("proof-card").first();
+    await expectText(card.getByTestId("proof-reading"), /Rs 3,600/);
+    const chosen = await card.getByTestId("proof-family").evaluate((el) => el.options[el.selectedIndex].text);
+    if (!/Ahmed Nawaz/.test(chosen)) throw new Error("suggested family was " + chosen);
+    await shot(clerk, "screenshot-read");
+    await card.getByTestId("proof-approve").click();
+    await clerk.waitForURL(/receipts\/.*from=proofs/, { timeout: 30000 });
+    await expectText(clerk.getByTestId("payment-saved"), /Receipt #3/);
+    await expectText(clerk.getByTestId("receipt"), /Rs 3,600/);
+    await clerk.getByTestId("receipt-wa").waitFor();
+    await shot(clerk, "screenshot-receipt");
+    await clerk.goto(`${BASE}/app/proofs`);
+    globalThis.__png = png;
+  });
+
+  await check("the same screenshot sent again is flagged as a copy and rejected", async () => {
+    await clerk.getByTestId("proof-file").setInputFiles({ name: "again.png", mimeType: "image/png", buffer: globalThis.__png });
+    await clerk.getByTestId("proof-submit").click();
+    await clerk.getByTestId("proof-card").first().waitFor({ timeout: 60000 });
+    await expectText(clerk.getByTestId("proof-warnings").first(), /already sent before|already used/);
+    await shot(clerk, "screenshot-duplicate");
+    await clerk.getByTestId("proof-reject").first().click();
+    await clerk.getByTestId("proof-card").first().waitFor({ state: "detached", timeout: 15000 });
   });
 
   await check("owner runs automation now: dropout check, Morning Brief, reminders (Stage 2)", async () => {
