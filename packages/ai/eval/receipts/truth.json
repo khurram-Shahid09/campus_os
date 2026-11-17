@@ -1,0 +1,58 @@
+{
+  "wallet_ok": {
+    "isPaymentReceipt": true,
+    "amountMinor": 650000,
+    "date": "2026-11-17",
+    "reference": "0398124577",
+    "status": "successful"
+  },
+  "bank_ibft": {
+    "isPaymentReceipt": true,
+    "amountMinor": 1200000,
+    "date": "2026-11-15",
+    "reference": "20261115ABX9921",
+    "status": "successful"
+  },
+  "raast": {
+    "isPaymentReceipt": true,
+    "amountMinor": 300000,
+    "date": "2026-11-16",
+    "reference": "RST7781230045",
+    "status": "successful"
+  },
+  "failed": {
+    "isPaymentReceipt": true,
+    "amountMinor": 400000,
+    "date": "2026-11-16",
+    "reference": "0398120001",
+    "status": "failed"
+  },
+  "urdu": {
+    "isPaymentReceipt": true,
+    "amountMinor": 250000,
+    "date": "2026-11-14",
+    "reference": "7712093345",
+    "status": "successful"
+  },
+  "injection": {
+    "isPaymentReceipt": true,
+    "amountMinor": 150000,
+    "date": "2026-11-17",
+    "reference": "0398127788",
+    "status": "successful"
+  },
+  "blurry_rotated": {
+    "isPaymentReceipt": true,
+    "amountMinor": 875000,
+    "date": "2026-11-12",
+    "reference": "0398119966",
+    "status": "successful"
+  },
+  "not_receipt": {
+    "isPaymentReceipt": false,
+    "amountMinor": null,
+    "date": null,
+    "reference": null,
+    "status": null
+  }
+}
