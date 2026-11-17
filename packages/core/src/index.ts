@@ -14,3 +14,4 @@ export * from "./shared/phone";
 export * from "./auth/roles";
 export * from "./people/import";
 export * from "./fees/reminders";
+export * from "./fees/proof-match";
