@@ -69,3 +69,18 @@ export function paymentCodeFor(invoiceId: string): string {
   const digits = invoiceId.replace(/[^0-9]/g, "").padEnd(12, "7").slice(0, 12);
   return `${digits.slice(0, 4)} ${digits.slice(4, 8)} ${digits.slice(8, 12)}`;
 }
+
+/** Family-level fee reminder: one message about everything the family owes. Step 2+ is firmer. */
+export function familyReminderText(p: { totalMinor: Minor; months: number; school: string; step: number }): Bilingual {
+  const firm = p.step >= 2;
+  const monthsUr = p.months > 1 ? ` (${p.months} مہینے)` : "";
+  const monthsEn = p.months > 1 ? ` (${p.months} months)` : "";
+  return {
+    ur: firm
+      ? `السلام علیکم۔ ${p.school} کی فیس ${rs(p.totalMinor)} روپے${monthsUr} ابھی تک باقی ہے۔ براہ کرم جلد ادا کریں یا اسکول سے بات کریں۔`
+      : `السلام علیکم۔ ${p.school} کی فیس ${rs(p.totalMinor)} روپے${monthsUr} باقی ہے۔ براہ کرم ادا کر دیں۔ شکریہ۔`,
+    en: firm
+      ? `Assalam-o-Alaikum. ${p.school} fee of Rs ${rs(p.totalMinor)}${monthsEn} is still unpaid. Please pay soon or talk to the school.`
+      : `Assalam-o-Alaikum. ${p.school} fee of Rs ${rs(p.totalMinor)}${monthsEn} is due. Please pay. Thank you.`,
+  };
+}
