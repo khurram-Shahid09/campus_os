@@ -13,6 +13,7 @@ const TRIGGER: Record<string, string> = {
   fee_reminder_manual: "Reminder sent by staff",
   proof_rejected: "Screenshot not accepted",
   morning_brief: "Morning Brief",
+  notice: "Notice",
 };
 export const triggerLabel = (key: string | null) => (key ? TRIGGER[key] ?? key.replace(/_/g, " ") : "Message");
 
