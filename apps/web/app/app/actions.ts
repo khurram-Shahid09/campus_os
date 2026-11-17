@@ -286,3 +286,46 @@ export async function familyDueAction(familyId: string) {
   });
   return r.result ?? null;
 }
+
+// ---------- automation (Stage 2) ----------
+export async function setAutomationAction(_: FormState, f: FormData): Promise<FormState> {
+  const r = await action("school.setup", (tx, ctx) =>
+    cmd.setAutomationSettings(tx, ctx.schoolId, { reminders: f.get("reminders") === "on", brief: f.get("brief") === "on" }),
+  );
+  return done(r, "Saved.", "/app/automation");
+}
+
+export async function runJobNowAction(_: FormState, f: FormData): Promise<FormState> {
+  const job = str(f, "job") as cmd.JobName;
+  if (!["risk_scores", "morning_brief", "fee_reminders"].includes(job)) return { error: "Unknown job." };
+  const r = await action("school.setup", async (_tx, ctx) => {
+    const { getDb } = await import("@/lib/db");
+    return cmd.runDueJobs(getDb(), { schoolId: ctx.schoolId, only: job });
+  });
+  if (r.error) return { error: r.error };
+  const rep = r.result?.[0];
+  if (!rep) return { ok: "Already ran today. It runs again tomorrow." };
+  if (rep.status === "failed") return { error: `It failed: ${rep.error}` };
+  revalidatePath("/app", "layout");
+  return { ok: "Done." };
+}
+
+export async function logRiskFollowupAction(_: FormState, f: FormData): Promise<FormState> {
+  const outcome = str(f, "outcome") as "will_return";
+  if (!["will_return", "fee_plan_agreed", "leaving", "no_answer"].includes(outcome)) return { error: "Choose what happened." };
+  const r = await action("attendance.mark.any", (tx, ctx) => cmd.logRiskFollowup(tx, ctx, { studentId: uuid(f, "studentId"), outcome, notes: str(f, "notes") }));
+  return done(r, "Call saved.", "/app/calls");
+}
+
+export async function logFeeCallAction(_: FormState, f: FormData): Promise<FormState> {
+  const outcome = str(f, "outcome") as "promised";
+  if (!["promised", "no_answer", "refused"].includes(outcome)) return { error: "Choose what happened." };
+  const day = str(f, "promisedOn");
+  const r = await action("messages.send", (tx, ctx) =>
+    cmd.logFeeCall(tx, ctx, {
+      reminderEventId: uuid(f, "reminderEventId"), outcome,
+      promisedOn: day ? new Date(`${day}T00:00:00Z`) : null, amountMinor: rupees(str(f, "amount")),
+    }),
+  );
+  return done(r, outcome === "promised" ? "Promise saved. Reminders pause until that date." : "Call saved.", "/app/calls");
+}

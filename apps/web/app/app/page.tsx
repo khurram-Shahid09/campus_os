@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ageBalances, can, formatMoney, periodLabel, periodOf } from "@campusos/core";
 import { getActiveStudentCount, getAttendanceOn, getCollections, getOpenBalances, getSavingsFacts } from "@campusos/db/queries";
-import { getBilledForPeriod, getDiscountRequests, getPaymentsOnDay, getRecentActivity, getSectionsWithStatus, getSetupProgress } from "@campusos/db/app";
+import { getBilledForPeriod, getDiscountRequests, getFeeCalls, getRecoveredThisMonth, getRiskList, getPaymentsOnDay, getRecentActivity, getSectionsWithStatus, getSetupProgress } from "@campusos/db/app";
 import { Badge, ButtonLink, Card, PageTitle, Stat } from "@/components/ui";
 import { requireApp } from "@/lib/auth";
 import { DiscountDecision } from "./discount-decision";
@@ -29,6 +29,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
       requests: can(c.role, "fees.discount.approve") ? await getDiscountRequests(tx, c) : [],
       savings: await getSavingsFacts(tx, c.schoolId, monthStart, new Date()),
       activity: can(c.role, "dashboard.owner") ? await getRecentActivity(tx, c, 10) : [],
+      recovered: await getRecoveredThisMonth(tx, c.schoolId, c.today),
+      calls: can(c.role, "attendance.mark.any")
+        ? (await getFeeCalls(tx, c.schoolId)).length + (await getRiskList(tx, c.schoolId)).filter((r) => r.band === "high").length
+        : 0,
     };
   });
 
@@ -48,7 +52,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
 
   return (
     <div className="space-y-5">
-      <PageTitle role="Today" title={ctx.today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} />
+      <PageTitle
+        role="Today"
+        title={ctx.today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+        right={
+          <div className="flex gap-2">
+            {data.calls > 0 && <ButtonLink href="/app/calls" variant="ghost">{data.calls} call{data.calls === 1 ? "" : "s"} to make</ButtonLink>}
+            {can(ctx.role, "dashboard.owner") && <ButtonLink href="/app/brief">Morning Brief</ButtonLink>}
+          </div>
+        }
+      />
       {denied && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That page is not available for your role.</p>}
 
       {setupLeft > 0 && can(ctx.role, "school.setup") && (
@@ -124,6 +137,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ d
         <div className="grid gap-5 lg:grid-cols-2">
           <Card title="What CampusOS did this month" sub="Counted from your own records. Time and money estimates come after a few weeks of use.">
             <ul className="space-y-1.5 text-sm" data-testid="measured">
+              <li><b className="tabular text-brand">{formatMoney(data.recovered.recoveredMinor)}</b> paid within 7 days of a CampusOS reminder ({data.recovered.payments} payments)</li>
               <li><b className="tabular">{data.savings.attendanceSessions}</b> class registers taken on phone instead of paper</li>
               <li><b className="tabular">{data.savings.digitalPages}</b> fee slips / records made without writing by hand</li>
               <li><b className="tabular">{data.savings.automatedReminders}</b> WhatsApp messages sent from the outbox</li>

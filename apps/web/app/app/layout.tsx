@@ -15,7 +15,9 @@ const ITEMS: { href: string; label: string; perm: Action }[] = [
   { href: "/app/fees", label: "Fees", perm: "fees.view" },
   { href: "/app/students", label: "Students", perm: "students.view" },
   { href: "/app/staff", label: "Staff", perm: "staff.edit" },
+  { href: "/app/calls", label: "Calls", perm: "attendance.mark.any" },
   { href: "/app/outbox", label: "WhatsApp", perm: "messages.send" },
+  { href: "/app/automation", label: "Automation", perm: "attendance.mark.any" },
   { href: "/app/setup", label: "Setup", perm: "school.setup" },
 ];
 

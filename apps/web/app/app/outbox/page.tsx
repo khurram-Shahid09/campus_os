@@ -4,7 +4,7 @@ import { Badge, Card, PageTitle } from "@/components/ui";
 import { requireApp } from "@/lib/auth";
 import { WaSend } from "../wa-send";
 
-const CAT: Record<string, string> = { fee: "Fee", receipt: "Receipt", attendance: "Absent", notice: "Notice", system: "Message" };
+const CAT: Record<string, string> = { fee: "Fee", receipt: "Receipt", attendance: "Absent", notice: "Notice", system: "Message", brief: "Morning Brief" };
 
 export default async function Outbox() {
   const { run } = await requireApp("messages.send");
@@ -26,7 +26,7 @@ export default async function Outbox() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm">
                     <Badge tone={m.category === "attendance" ? "warn" : m.category === "receipt" ? "brand" : "muted"}>{CAT[m.category] ?? m.category}</Badge>{" "}
-                    <span className="font-semibold">{m.guardian}</span> <span className="text-muted tabular">{displayPkPhone(m.toPhone)}</span>
+                    <span className="font-semibold">{m.guardian ?? (m.category === "brief" ? "Owner" : "")}</span> <span className="text-muted tabular">{displayPkPhone(m.toPhone)}</span>
                   </p>
                   {b && <p className="mt-1 text-sm" dir="rtl" lang="ur">{b.ur}</p>}
                   {b && <p className="text-xs text-muted">{b.en}</p>}
