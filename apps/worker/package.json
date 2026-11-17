@@ -1,0 +1,20 @@
+{
+  "name": "@campusos/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "run-once": "tsx src/run-once.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"covered by packages/db automation tests\""
+  },
+  "dependencies": {
+    "@campusos/core": "workspace:*",
+    "@campusos/db": "workspace:*",
+    "pg-boss": "12.38.0"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15"
+  }
+}
