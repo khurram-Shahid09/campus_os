@@ -12,9 +12,9 @@ import { WaSend } from "../../wa-send";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const METHOD: Record<string, string> = { cash: "Cash", bank: "Bank deposit", wallet: "Mobile wallet", cheque: "Cheque" };
 
-export default async function Receipt({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string }> }) {
+export default async function Receipt({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string; from?: string }> }) {
   const { id } = await params;
-  const { new: isNew } = await searchParams;
+  const { new: isNew, from } = await searchParams;
   if (!UUID.test(id)) notFound();
   const { ctx, run } = await requireApp("fees.view");
   const { p, msg } = await run(async (tx, c) => ({ p: await getPayment(tx, c, id), msg: await getMessageForPayment(tx, c, id) }));
@@ -57,10 +57,18 @@ export default async function Receipt({ params, searchParams }: { params: Promis
 
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <PrintButton label="Print receipt" />
-        {msg && body && msg.status === "outbox" && <WaSend messageId={msg.id} phone={msg.toPhone} text={`${body.ur}\n\n${body.en}`} />}
-        {msg && msg.status !== "outbox" && <span className="text-sm text-muted">WhatsApp receipt {msg.status === "skipped" ? "skipped" : "sent"}</span>}
+        {msg && msg.status === "simulated" && <span className="text-sm text-brand" data-testid="receipt-wa">WhatsApp receipt sent automatically (simulated)</span>}
+        {msg && msg.status === "sent_manual" && <span className="text-sm text-brand">WhatsApp receipt sent from staff phone</span>}
+        {msg && body && ["simulated", "outbox", "pending_api"].includes(msg.status) && (
+          <WaSend messageId={msg.id} phone={msg.toPhone} text={`${body.ur}\n\n${body.en}`} compact={msg.status === "simulated"}
+            label={msg.status === "simulated" ? "Send from my phone" : "Send on WhatsApp"} />
+        )}
         {!msg && <span className="text-sm text-muted">No WhatsApp number for this family.</span>}
-        {can(ctx.role, "fees.collect") && <Link href="/app/cash" className="ml-auto text-sm font-semibold text-brand underline">Next payment →</Link>}
+        {can(ctx.role, "fees.collect") && (
+          <Link href={from === "proofs" ? "/app/proofs" : "/app/cash"} className="ml-auto text-sm font-semibold text-brand underline">
+            {from === "proofs" ? "Next screenshot →" : "Next payment →"}
+          </Link>
+        )}
       </div>
 
       {can(ctx.role, "fees.reverse") && pay.status === "confirmed" && !pay.reversalOf && (

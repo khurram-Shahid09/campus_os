@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { can, ROLE_LABEL, type Action } from "@campusos/core";
-import { getOutboxCount } from "@campusos/db/app";
+import { getOutboxCount, getProofs } from "@campusos/db/app";
 import { requireApp } from "@/lib/auth";
 import { logoutAction } from "../login/actions";
 import { AppNav } from "./nav";
@@ -12,6 +12,7 @@ const ITEMS: { href: string; label: string; perm: Action }[] = [
   { href: "/app", label: "Home", perm: "students.view" },
   { href: "/app/attendance", label: "Attendance", perm: "attendance.mark" },
   { href: "/app/cash", label: "Cash counter", perm: "fees.collect" },
+  { href: "/app/proofs", label: "Screenshots", perm: "fees.collect" },
   { href: "/app/fees", label: "Fees", perm: "fees.view" },
   { href: "/app/students", label: "Students", perm: "students.view" },
   { href: "/app/staff", label: "Staff", perm: "staff.edit" },
@@ -25,6 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { session, ctx, run } = await requireApp();
   const items = ITEMS.filter((i) => can(ctx.role, i.perm) && !(ctx.role === "teacher" && i.href === "/app"));
   const outbox = can(ctx.role, "messages.send") ? await run((tx, c) => getOutboxCount(tx, c)) : 0;
+  const proofs = can(ctx.role, "fees.collect") ? (await run((tx, c) => getProofs(tx, c, "pending", 99))).length : 0;
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-20 border-b border-line bg-white/95 backdrop-blur print:hidden">
@@ -38,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             <form action={logoutAction}><button className="text-muted hover:text-ink" data-testid="logout">Log out</button></form>
           </div>
         </div>
-        <AppNav items={items.map(({ href, label }) => ({ href, label, badge: href === "/app/outbox" ? outbox : 0 }))} />
+        <AppNav items={items.map(({ href, label }) => ({ href, label, badge: href === "/app/outbox" ? outbox : href === "/app/proofs" ? proofs : 0 }))} />
       </header>
       <SyncBanner />
       <main className="mx-auto max-w-6xl px-4 py-5 print:max-w-none print:p-0">{children}</main>

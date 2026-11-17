@@ -33,7 +33,7 @@ export default async function Automation() {
     <div className="space-y-5">
       <PageTitle role="Automation" title="What CampusOS does by itself" sub="These run every day without anyone pressing a button. Times are your school's local time." />
 
-      <Card title="Money recovered by reminders this month" sub="Counted only when a family pays within 7 days after a reminder that was actually sent. We would rather under-claim.">
+      <Card title="Money recovered by reminders this month" sub="Counted only when a family pays within 7 days after a reminder that really reached them. Simulated reminders are never counted. We would rather under-claim.">
         <p className="text-3xl font-semibold tabular text-brand" data-testid="recovered">{formatMoney(recovered.recoveredMinor)}</p>
         <p className="text-sm text-muted">{recovered.payments} payment{recovered.payments === 1 ? "" : "s"}</p>
       </Card>
@@ -66,7 +66,8 @@ export default async function Automation() {
             <Submit>Save</Submit>
           </ActionForm>
           <p className="mt-2 text-xs text-muted">
-            Until the WhatsApp Business number is connected, messages wait in the <Link href="/app/outbox" className="text-brand underline">WhatsApp outbox</Link> for one-tap sending.
+            Until the WhatsApp Business number is connected, sending is simulated: every message is created and shown in the{" "}
+            <Link href="/app/outbox" className="text-brand underline">WhatsApp log</Link>, but not delivered.
           </p>
         </Card>
       )}

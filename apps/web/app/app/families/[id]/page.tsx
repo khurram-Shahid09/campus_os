@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { can, displayPkPhone, formatMoney, periodLabel } from "@campusos/core";
-import { getFamily } from "@campusos/db/app";
+import { can, displayPkPhone, formatMoney, periodLabel, type Bilingual } from "@campusos/core";
+import { getFamily, getMessageLog, triggerLabel } from "@campusos/db/app";
 import { Badge, ButtonLink, Card, PageTitle } from "@/components/ui";
 import { ActionForm, Field, inputCls, Submit } from "@/components/form";
 import { requireApp } from "@/lib/auth";
@@ -13,7 +13,10 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const { ctx, run } = await requireApp("fees.view");
-  const f = await run((tx, c) => getFamily(tx, c, id));
+  const { f, chat } = await run(async (tx, c) => ({
+    f: await getFamily(tx, c, id),
+    chat: await getMessageLog(tx, c, { includeOwnerBrief: false, familyId: id, limit: 30 }),
+  }));
   if (!f) notFound();
   const g = f.primary;
 
@@ -26,6 +29,7 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
         right={
           <div className="flex gap-2">
             {can(ctx.role, "fees.collect") && <ButtonLink href={`/app/cash?family=${f.family.id}`}>Take payment</ButtonLink>}
+            {can(ctx.role, "fees.collect") && <ButtonLink href={`/app/proofs?family=${f.family.id}`} variant="ghost">Add screenshot</ButtonLink>}
             <ButtonLink href={`/app/fees/slips?family=${f.family.id}`} variant="ghost">Print slip</ButtonLink>
           </div>
         }
@@ -81,6 +85,26 @@ export default async function FamilyPage({ params }: { params: Promise<{ id: str
           ))}
           {!f.payments.length && <li className="py-2 text-muted">No payments yet.</li>}
         </ul>
+      </Card>
+
+      <Card title="WhatsApp with this parent" sub="What the parent receives, newest at the bottom. Sent automatically when something happens.">
+        <div className="space-y-2 rounded-xl bg-[#e5ddd5] p-3" data-testid="family-chat">
+          {[...chat].reverse().map((m) => {
+            const b = m.body as Bilingual | null;
+            return (
+              <div key={m.id} className={`max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm ${m.direction === "in" ? "bg-white" : "ml-auto bg-[#dcf8c6]"}`}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">{triggerLabel(m.templateKey)}</p>
+                {b && <p dir="rtl" lang="ur">{b.ur}</p>}
+                {b && <p className="text-xs text-muted">{b.en}</p>}
+                <p className="mt-0.5 text-right text-[10px] text-muted">
+                  {m.createdAt.toLocaleString("en-GB", { timeZone: "Asia/Karachi", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  {m.status === "simulated" ? " · simulated" : m.status === "sent_manual" ? " · sent ✓" : ""}
+                </p>
+              </div>
+            );
+          })}
+          {!chat.length && <p className="text-center text-sm text-muted">No messages yet.</p>}
+        </div>
       </Card>
 
       {g && can(ctx.role, "students.edit") && (
