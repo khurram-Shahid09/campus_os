@@ -141,7 +141,20 @@ use build + start until that is fixed.
 Demo limits: no login (role switcher), WhatsApp is simulated on screen, screenshot reading uses pre-filled
 values marked "demo read" until the Claude API key is connected.
 
-## Demo videos (about 1 minute per role)
+## Owner video (about 3 minutes, English voice-over)
+
+```sh
+pnpm db:seed                                   # demo school ending today
+node tools/demo-video/owner-video.mjs          # app on :3000 with DEMO_LOGIN=1; needs GEMINI_API_KEYS
+```
+
+Records one school day in the real app (Morning Brief, teacher attendance, cash counter, payment screenshots,
+reminders, principal's calls, owner decisions, Savings) and writes `demo-videos/campusos-owner.mp4`
+(portrait 720x1280, H.264 + AAC). The voice is Gemini text-to-speech, cached in `demo-videos/voice/`; spoken
+savings figures are read from the database during recording, so they match the screen. Title and end cards say
+"demo school, made-up data, AI voice", and the voice says WhatsApp sending is simulated in the demo.
+
+## Role videos (about 1 minute per role, older click-through demo)
 
 ```sh
 pnpm db:seed
