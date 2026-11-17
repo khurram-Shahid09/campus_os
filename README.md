@@ -28,6 +28,33 @@ pnpm worker                   # second terminal: scheduled jobs (reminders, Morn
 # working app: http://localhost:3000/login     sales demo: http://localhost:3000/demo
 ```
 
+## Demo school inside the working app
+
+`pnpm db:seed` creates **Demo Grammar School (DEMO)**: 620 made-up students, 367 families, 14 months of fees,
+attendance, reminders, payment screenshots, principal calls and automation history, always ending *today*.
+With `DEMO_LOGIN=1` the login page shows one-click logins for **Owner, Principal, Fee clerk and Teacher**, and every
+page shows a "DEMO SCHOOL" bar. Demo logins only ever open the demo school. Turn `DEMO_LOGIN` off on a server
+that holds real schools. (The older click-through sales demo is still at `/demo`.)
+
+`node tools/demo-video/smoke-demo.mjs` logs in as each demo role and opens every page in its menu.
+
+## What owners and staff get (summary)
+
+| Screen | Who | Saves |
+|---|---|---|
+| Home | owner, principal, clerk | today's money, attendance, decisions waiting |
+| Savings | owner | money recovered / kept (measured) vs CampusOS cost; hours and paper (labelled estimates) |
+| Morning Brief | owner | the day's numbers at 7:00 without logging in (WhatsApp once connected) |
+| Fees | owner, clerk, principal | one-click monthly slips (siblings together), defaulters, discount approvals |
+| Cash counter + receipts | clerk | numbered receipts, WhatsApp receipt, owner-only reversals |
+| Screenshots | clerk | AI reads wallet/bank screenshots; code matches the family and catches copies |
+| Attendance | teacher, principal | tap only the absent; parents told automatically; works offline |
+| Calls | principal | families to call: fees reminders couldn't recover, students who may leave |
+| WhatsApp + Notices | clerk, principal, owner | every automatic message logged; notices to all / a class / families with dues |
+| Reports | owner, clerk, principal | defaulters, day book, monthly attendance, staff late minutes (Excel) |
+| Automation | owner, principal | what ran by itself each day; switches; run now |
+| Setup | owner | classes, fees (with the 5% fee rule check), team logins |
+
 ## Automation (Stage 2, `apps/worker`)
 
 The worker runs next to the web app and keeps its queue in the same Postgres (pg-boss, schema `pgboss`).
