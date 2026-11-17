@@ -62,7 +62,7 @@ export default async function Proofs({ searchParams }: { searchParams: Promise<{
               </a>
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  {x.source === "ai" ? <Badge tone="brand">Read by AI</Badge> : <Badge tone="warn">Not read: type the details</Badge>}
+                  {x.source === "ai" ? <Badge tone="brand">Read by AI</Badge> : x.source === "demo" ? <Badge tone="muted">Demo reading (pre-filled)</Badge> : <Badge tone="warn">Not read: type the details</Badge>}
                   <span className="text-xs text-muted">added by {uploadedBy || "staff"} · {proof.createdAt.toLocaleString("en-GB", { timeZone: "Asia/Karachi", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3" data-testid="proof-reading">

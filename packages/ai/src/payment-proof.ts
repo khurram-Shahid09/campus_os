@@ -60,7 +60,7 @@ export interface RawProof {
 
 /** What is stored in payment_proofs.extracted */
 export interface StoredExtraction {
-  source: "ai" | "none";
+  source: "ai" | "none" | "demo";
   amountMinor: number | null;
   date: string | null;
   reference: string | null;

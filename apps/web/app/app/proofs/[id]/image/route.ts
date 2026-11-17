@@ -13,6 +13,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!session?.school || !session.role || !can(session.role, "fees.view") || !UUID.test(id)) return new Response("Not found", { status: 404 });
   const info = await withSchool(getDb(), session.school.id, (tx) => getProofImageInfo(tx, { schoolId: session.school!.id }, id));
   if (!info) return new Response("Not found", { status: 404 });
+  // demo school: screenshots are drawn by /demo/receipt (synthetic, marked "DEMO RECEIPT")
+  if (session.school.isDemo && info.imageKey.startsWith("/demo/receipt?")) return Response.redirect(new URL(info.imageKey, _req.url), 302);
   try {
     const bytes = await readImage(info.imageKey);
     return new Response(new Uint8Array(bytes), {

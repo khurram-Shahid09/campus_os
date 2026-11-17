@@ -8,6 +8,7 @@ import { WaSend } from "../wa-send";
 const STATUS: Record<string, { label: string; tone: "brand" | "warn" | "muted" | "danger" }> = {
   simulated: { label: "Sent automatically · simulated", tone: "brand" },
   sent_manual: { label: "Sent from staff phone", tone: "brand" },
+  delivered: { label: "Delivered (demo history)", tone: "brand" },
   outbox: { label: "Waiting for staff to send", tone: "warn" },
   pending_api: { label: "Waiting for WhatsApp API", tone: "warn" },
   skipped: { label: "Skipped", tone: "muted" },
@@ -27,7 +28,8 @@ export default async function WhatsApp() {
   return (
     <div className="space-y-4">
       <PageTitle role="WhatsApp" title={`${total} message${total === 1 ? "" : "s"} triggered automatically this week`}
-        sub="Every fee slip, payment, absence and late fee sends a WhatsApp to the parent by itself, in Urdu and English. Nobody has to type or remember." />
+        sub="Every fee slip, payment, absence and late fee sends a WhatsApp to the parent by itself, in Urdu and English. Nobody has to type or remember."
+        right={<Link href="/app/notices" className="rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-white" data-testid="new-notice">Send a notice</Link>} />
 
       {mode === "simulated" && (
         <div className="rounded-xl border border-warn/30 bg-warn-soft px-4 py-3 text-sm text-warn" data-testid="wa-simulated">
