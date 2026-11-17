@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: campusos
+      POSTGRES_PASSWORD: campusos
+      POSTGRES_DB: campusos
+    ports:
+      - "5433:5432"
+    volumes:
+      - campusos_pg:/var/lib/postgresql/data
+volumes:
+  campusos_pg:
