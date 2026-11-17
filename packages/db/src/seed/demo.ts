@@ -300,24 +300,30 @@ async function main() {
       const partial = fam.profile === "defaulter" && paidInTime && chance(0.3);
       const paid = paidInTime ? (partial ? Math.round(total / 2 / 100) * 100 : total) : 0;
 
-      // Reminder ladder (only after go-live): voice note +3, text +10, IVR call +20, stop once paid.
+      // Reminder ladder (only after go-live): WhatsApp +3, firmer WhatsApp +10, principal call +20 (as the worker does).
       let lastReminder: { id: string; at: Date } | null = null;
       if (live) {
         const ladder = [
           { step: 1, offset: 3, channel: "whatsapp_voice" },
           { step: 2, offset: 10, channel: "whatsapp_text" },
-          { step: 3, offset: 20, channel: "ivr_call" },
+          { step: 3, offset: 20, channel: "principal_call" },
         ];
         for (const r of ladder) {
           const at = addDays(due, r.offset);
           if (at > AS_OF) break;
           if (paidOn && paidOn < at && !partial) break;
           const id = randomUUID();
+          if (r.channel === "principal_call") {
+            // a call for the principal, not a message: recent ones are still waiting on the Calls page
+            reminderRows.push({ id, schoolId, invoiceId, familyId: fam.id, stepNo: r.step, channel: r.channel, messageId: null, sentAt: at,
+              outcome: (!paidOn || paidOn > AS_OF) && daysBetween(at, AS_OF) <= 30 ? "call_needed" : chance(0.6) ? "promised" : "no_answer" });
+            continue;
+          }
           const messageId = randomUUID();
           const voice = r.channel !== "whatsapp_text" || fam.prefersVoice;
           messageRows.push({
             id: messageId, schoolId, familyId: fam.id, guardianId: fam.guardianId, toPhone: fam.phone,
-            channel: r.channel === "ivr_call" ? "ivr" : "whatsapp", format: voice ? "voice" : "text", category: "fee",
+            channel: "whatsapp", format: voice ? "voice" : "text", category: "fee",
             templateKey: `fee_reminder_${r.step}`, status: "delivered", sentAt: new Date(at.getTime() + 5 * 3600_000),
             body: feeReminderText({ child: kids[0]!.name, period: periodKey(y, m), amountMinor: total, school: SCHOOL_SHORT, step: r.step }),
             createdAt: new Date(at.getTime() + 5 * 3600_000),
@@ -379,6 +385,15 @@ async function main() {
   await insertChunks(db, s.payments, paymentRows);
   await db.insert(s.schoolCounters).values({ schoolId, key: "receipt_no", value: paymentRows.length });
   await insertChunks(db, s.paymentAllocations, allocRows);
+  // one open call per family (the latest), like the live ladder which keys calls to the family's oldest month
+  const openCall = new Map<string, (typeof reminderRows)[number]>();
+  for (const r of reminderRows) {
+    if (r.outcome !== "call_needed") continue;
+    const prev = openCall.get(r.familyId!);
+    if (prev) {
+      if (+(r.sentAt as Date) > +(prev.sentAt as Date)) { prev.outcome = "no_answer"; openCall.set(r.familyId!, r); } else r.outcome = "no_answer";
+    } else openCall.set(r.familyId!, r);
+  }
   await insertChunks(db, s.reminderEvents, reminderRows);
 
   // ---------- payment screenshots waiting for the clerk ----------
@@ -523,6 +538,15 @@ async function main() {
     }
   }
   await insertChunks(db, s.riskFollowups, followRows);
+  // "today" rows are stored at UTC midnight; just after midnight in Pakistan that is still in the future. Nothing in
+  // the demo may happen after the moment it is seeded, or "this month" figures would differ between screens.
+  const nowMs = Date.now() - 60_000;
+  const clamp = (d: Date | undefined | null) => (d && d.getTime() > nowMs ? new Date(nowMs) : d);
+  for (const r of roiRows) r.occurredAt = clamp(r.occurredAt as Date)!;
+  for (const m of messageRows) {
+    m.sentAt = clamp(m.sentAt as Date | null) ?? null;
+    if (m.createdAt) m.createdAt = clamp(m.createdAt as Date)!;
+  }
   await insertChunks(db, s.roiEvents, roiRows);
   await insertChunks(db, s.messages, messageRows);
 
