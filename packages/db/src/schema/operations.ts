@@ -91,9 +91,21 @@ export const paymentProofs = pgTable(
     status: text("status").notNull().default("pending"), // pending|approved|rejected|duplicate
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     paymentId: uuid("payment_id"),
+    /** normalised transaction ID, for duplicate checks */
+    referenceNorm: text("reference_norm"),
+    imageMime: text("image_mime"),
+    /** upload (clerk adds a screenshot the parent sent) | whatsapp (Business API, later) */
+    source: text("source").notNull().default("upload"),
+    uploadedByUserId: uuid("uploaded_by_user_id"),
+    reviewedByUserId: uuid("reviewed_by_user_id"),
+    reviewNote: text("review_note"),
     createdAt: createdAt(),
   },
-  (t) => [index("payment_proofs_school_status").on(t.schoolId, t.status)],
+  (t) => [
+    index("payment_proofs_school_status").on(t.schoolId, t.status),
+    index("payment_proofs_school_hash").on(t.schoolId, t.imageHash),
+    index("payment_proofs_school_ref").on(t.schoolId, t.referenceNorm),
+  ],
 );
 
 export const riskFollowups = pgTable("risk_followups", {

@@ -14,6 +14,7 @@ import type { Db, Tx } from "../index";
 import * as s from "../schema/index";
 import { queueToFamily } from "./commands";
 import { withSchool } from "./scoped";
+import { newMessageStatus } from "./messaging";
 
 export interface SchoolCtx {
   schoolId: string;
@@ -158,7 +159,8 @@ export async function runMorningBrief(tx: Tx, c: SchoolCtx) {
     await tx.insert(s.messages).values({
       schoolId: c.schoolId, toPhone: o.phone, channel: "whatsapp", format: "text", category: "brief", templateKey: "morning_brief",
       // not put in the staff outbox (it is the owner's private summary): sent by the WhatsApp API once connected
-      body: { ur: text.ur, en: text.en }, payload: { briefId: brief!.id, to: "owner" }, status: "pending_api",
+      body: { ur: text.ur, en: text.en }, payload: { briefId: brief!.id, to: "owner" },
+      status: newMessageStatus() === "simulated" ? "simulated" : "pending_api", sentAt: newMessageStatus() === "simulated" ? new Date() : null,
     });
   }
   return { briefId: brief!.id, owners: owners.length };
@@ -211,7 +213,9 @@ export async function runFeeReminders(tx: Tx, c: SchoolCtx) {
     } else calls++;
     await tx.insert(s.reminderEvents).values({
       schoolId: c.schoolId, invoiceId: p.invoiceId, familyId: p.familyId, stepNo: p.step, channel: p.channel, messageId,
-      sentAt: new Date(), outcome: p.channel === "principal_call" ? "call_needed" : "queued",
+      sentAt: new Date(),
+      // simulated messages never reached the parent: they are shown, but earn no "recovered" credit
+      outcome: p.channel === "principal_call" ? "call_needed" : newMessageStatus() === "simulated" ? "simulated" : "queued",
     }).onConflictDoNothing();
   }
   return { messages, calls, families: families.length };

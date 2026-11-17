@@ -50,6 +50,13 @@
       "when": 1794944940305,
       "tag": "0006_job_runs_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794946052217,
+      "tag": "0007_payment_proofs_review",
+      "breakpoints": true
     }
   ]
 }

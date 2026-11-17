@@ -3,3 +3,6 @@ export * from "./auth";
 export * from "./commands";
 export * from "./queries";
 export * from "./automation";
+export * from "./messaging";
+export * from "./proofs";
+export * from "./message-log";

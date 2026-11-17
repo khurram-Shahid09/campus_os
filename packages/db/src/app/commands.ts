@@ -26,6 +26,7 @@ import {
   type StaffRole,
 } from "@campusos/core";
 import type { Tx } from "../index";
+import { newMessageStatus } from "./messaging";
 import * as s from "../schema/index";
 
 export interface AppCtx {
@@ -86,7 +87,8 @@ export async function queueToFamily(
     .insert(s.messages)
     .values({
       schoolId: ctx.schoolId, familyId, guardianId: g.id, toPhone: g.phone, channel: "whatsapp",
-      format: "text", category: m.category, templateKey: m.templateKey, body: m.body, payload: m.payload ?? null, status: "outbox",
+      format: "text", category: m.category, templateKey: m.templateKey, body: m.body, payload: m.payload ?? null,
+      status: newMessageStatus(), sentAt: newMessageStatus() === "simulated" ? new Date() : null,
     })
     .returning({ id: s.messages.id });
   return row!.id;
@@ -667,12 +669,12 @@ export async function markMessageSent(tx: Tx, ctx: AppCtx, input: { messageId: s
   assertCan(ctx, "messages.send");
   await tx.update(s.messages)
     .set({ status: input.skipped ? "skipped" : "sent_manual", sentAt: new Date(), payload: sql`coalesce(${s.messages.payload}, '{}'::jsonb) || ${JSON.stringify({ sentBy: ctx.userId })}::jsonb` })
-    .where(and(eq(s.messages.schoolId, ctx.schoolId), eq(s.messages.id, input.messageId), eq(s.messages.status, "outbox")));
+    .where(and(eq(s.messages.schoolId, ctx.schoolId), eq(s.messages.id, input.messageId), inArray(s.messages.status, ["outbox", "simulated", "pending_api"])));
   if (!input.skipped) await tx.insert(s.roiEvents).values({ schoolId: ctx.schoolId, kind: "reminder_automated", refTable: "messages", refId: input.messageId, occurredAt: new Date() });
   // a scheduled fee reminder counts from when it was actually sent (payment attribution uses this time)
   await tx.update(s.reminderEvents)
     .set({ outcome: input.skipped ? "skipped" : "sent", sentAt: new Date() })
-    .where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.messageId, input.messageId), eq(s.reminderEvents.outcome, "queued")));
+    .where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.messageId, input.messageId), inArray(s.reminderEvents.outcome, ["queued", "simulated"])));
 }
 
 // ======================= follow-up calls =======================

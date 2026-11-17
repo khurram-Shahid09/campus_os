@@ -84,7 +84,7 @@ describe("scheduler", () => {
 
   it("step 1 WhatsApp for the family with a phone; the one without a phone (39 days late) goes to the call list", async () => {
     const ev = await events();
-    expect(ev.map((e) => `${e.stepNo}:${e.channel}:${e.outcome}`)).toEqual(["1:whatsapp_text:queued", "3:principal_call:call_needed"]);
+    expect(ev.map((e) => `${e.stepNo}:${e.channel}:${e.outcome}`)).toEqual(["1:whatsapp_text:simulated", "3:principal_call:call_needed"]);
     const scores = await withSchool(db, ctx.schoolId, (tx) => tx.select().from(s.riskScores));
     expect(scores).toHaveLength(3);
     // one month 39 days late is 15 points: below "watch" (25), so nobody is flagged yet
