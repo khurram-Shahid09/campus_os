@@ -5,7 +5,7 @@ import { buildImportPreview, guessColumns, periodOf, todayIn } from "@campusos/c
 import { createDb } from "../index";
 import * as s from "../schema/index";
 import {
-  approveProof, commitImport, createProof, createSchool, getFamily, getMatchCandidates, proofDuplicates, rejectProof, requestOtp,
+  approveProof, commitImport, createProof, createSchool, getFamily, getMatchCandidates, proofDuplicates, rejectProof, reportAttendanceMonth, reportPayments, requestOtp, sendNotice,
   runInvoices, verifyOtp, withSchool, type AppCtx,
 } from "./index";
 
@@ -77,5 +77,23 @@ describe("payment screenshots", () => {
     expect(p!.status).toBe("duplicate");
     const msgs = await withSchool(db, ctx.schoolId, (tx) => tx.select().from(s.messages).where(eq(s.messages.templateKey, "proof_rejected")));
     expect(msgs).toHaveLength(0); // proof had no family: nobody to tell
+  });
+});
+
+describe("notices and reports", () => {
+  it("sends a notice to every family once, and to families with dues only when asked", async () => {
+    const all = await withSchool(db, ctx.schoolId, (tx) => sendNotice(tx, ctx, { audience: { kind: "all" }, en: "School closed tomorrow.", ur: "کل اسکول بند ہے۔" }));
+    expect(all).toEqual({ families: 1, sent: 1, noPhone: 0 });
+    // the family paid in full above, so nobody has dues
+    await expect(withSchool(db, ctx.schoolId, (tx) => sendNotice(tx, ctx, { audience: { kind: "dues" }, en: "Please pay", ur: "" }))).rejects.toThrow(/No families/);
+    await expect(withSchool(db, ctx.schoolId, (tx) => sendNotice(tx, { ...ctx, role: "teacher" }, { audience: { kind: "all" }, en: "x", ur: "" }))).rejects.toThrow(/permission/);
+  });
+
+  it("report exports come from SQL with readable column names", async () => {
+    const pays = await withSchool(db, ctx.schoolId, (tx) => reportPayments(tx, ctx, new Date(T.getTime() - 86_400_000), T));
+    expect(pays).toHaveLength(1);
+    expect(pays[0]).toMatchObject({ "Receipt no.": 1, "Amount (Rs)": 4000, Method: "wallet", Reference: "0398124577" });
+    const att = await withSchool(db, ctx.schoolId, (tx) => reportAttendanceMonth(tx, ctx, periodOf(T)));
+    expect(att[0]).toMatchObject({ Student: "Sana Kamran", Present: 0 });
   });
 });
