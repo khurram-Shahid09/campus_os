@@ -245,6 +245,28 @@ try {
     await expectText(owner.getByTestId("family-balance"), /Rs 6,600/);
   });
 
+  await check("owner runs automation now: dropout check, Morning Brief, reminders (Stage 2)", async () => {
+    await owner.goto(`${BASE}/app/automation`);
+    for (const job of ["risk_scores", "morning_brief", "fee_reminders"]) {
+      await owner.getByTestId(`run-${job}`).click();
+      await expectText(owner.getByTestId(`run-${job}`).locator("xpath=ancestor::form"), /Done\.|Already ran today/);
+    }
+    await owner.reload();
+    await expectText(owner.getByTestId("job-runs"), /5 students checked/);
+    await expectText(owner.getByTestId("job-runs"), /0 WhatsApp reminders/); // slips are not overdue yet
+    await shot(owner, "automation");
+    await owner.goto(`${BASE}/app/brief`);
+    await expectText(owner.getByTestId("brief-text"), /E2E Test School/);
+    await shot(owner, "brief");
+    await owner.goto(`${BASE}/app/calls`);
+    await owner.getByTestId("fee-calls").waitFor();
+  });
+
+  await check("fee clerk cannot open the automation or calls pages", async () => {
+    await clerk.goto(`${BASE}/app/automation`);
+    await clerk.waitForURL(/denied=1/);
+  });
+
   await check("logout ends the session", async () => {
     await owner.getByTestId("logout").click();
     await owner.waitForURL(/login/);
