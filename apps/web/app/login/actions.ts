@@ -2,7 +2,8 @@
 
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { AuthError, createSchool, requestOtp, revokeSession, SESSION_TTL_MS, switchSchool, verifyOtp } from "@campusos/db/app";
+import { AuthError, createSchool, demoLogin, requestOtp, revokeSession, SESSION_TTL_MS, switchSchool, verifyOtp } from "@campusos/db/app";
+import { isStaffRole } from "@campusos/core";
 import { getDb } from "@/lib/db";
 import { currentSession, SESSION_COOKIE } from "@/lib/auth";
 
@@ -81,4 +82,22 @@ export async function chooseSchoolAction(schoolId: string) {
   if (!session) redirect("/login");
   await switchSchool(getDb(), session.sessionId, session.user.id, schoolId);
   redirect("/app");
+}
+
+export async function demoLoginAction(role: string): Promise<void> {
+  let error: string | null = null;
+  if (!isStaffRole(role)) error = "Unknown role.";
+  else {
+    try {
+      const h = await headers();
+      const { token } = await demoLogin(getDb(), role, h.get("user-agent"));
+      (await cookies()).set(SESSION_COOKIE, token, {
+        httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production" && process.env.INSECURE_COOKIES !== "1", path: "/", maxAge: 12 * 3600,
+      });
+    } catch (e) {
+      if (!(e instanceof AuthError)) console.error(e);
+      error = e instanceof AuthError ? e.message : "Could not open the demo.";
+    }
+  }
+  redirect(error ? `/login?demo_error=${encodeURIComponent(error)}` : role === "teacher" ? "/app/attendance" : "/app");
 }

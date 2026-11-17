@@ -80,7 +80,7 @@ export async function verifyOtp(db: Db, rawPhone: string, code: string, deviceIn
 export interface SessionInfo {
   sessionId: string;
   user: { id: string; name: string; phone: string };
-  school: { id: string; name: string; timezone: string; currency: string; settings: Record<string, unknown> } | null;
+  school: { id: string; name: string; timezone: string; currency: string; settings: Record<string, unknown>; isDemo: boolean } | null;
   role: StaffRole | null;
   memberships: { schoolId: string; schoolName: string; role: StaffRole }[];
 }
@@ -98,13 +98,14 @@ export async function getSession(db: Db, token: string | undefined | null): Prom
     .select({ schoolId: s.memberships.schoolId, role: s.memberships.role, schoolName: s.schools.name })
     .from(s.memberships)
     .innerJoin(s.schools, eq(s.schools.id, s.memberships.schoolId))
-    .where(and(eq(s.memberships.userId, row.user.id), eq(s.memberships.status, "active"), eq(s.schools.isDemo, false)));
+    // the demo school is only reachable when demo logins are switched on (DEMO_LOGIN=1)
+    .where(and(eq(s.memberships.userId, row.user.id), eq(s.memberships.status, "active"), ...(demoLoginEnabled() ? [] : [eq(s.schools.isDemo, false)])));
   const memberships = ms.filter((m) => isStaffRole(m.role)) as SessionInfo["memberships"];
   const active = memberships.find((m) => m.schoolId === row.session.activeSchoolId) ?? (memberships.length === 1 ? memberships[0] : undefined);
   let school: SessionInfo["school"] = null;
   if (active) {
     const [sc] = await db.select().from(s.schools).where(eq(s.schools.id, active.schoolId));
-    if (sc) school = { id: sc.id, name: sc.name, timezone: sc.timezone, currency: sc.currency, settings: (sc.settings ?? {}) as Record<string, unknown> };
+    if (sc) school = { id: sc.id, name: sc.name, timezone: sc.timezone, currency: sc.currency, settings: (sc.settings ?? {}) as Record<string, unknown>, isDemo: sc.isDemo };
   }
   if (Date.now() - row.session.lastSeenAt.getTime() > 24 * 3600_000) {
     await db.update(s.sessions).set({ lastSeenAt: new Date(), expiresAt: new Date(Date.now() + SESSION_TTL_MS) }).where(eq(s.sessions.id, row.session.id));
@@ -153,4 +154,31 @@ export async function createSchool(
     await tx.insert(s.auditLogs).values({ schoolId: sid, actorUserId: input.userId, action: "create", entity: "schools", entityId: sid, after: { name } });
     return { schoolId: sid };
   });
+}
+
+export function demoLoginEnabled(env: NodeJS.ProcessEnv = process.env) {
+  return env.DEMO_LOGIN === "1";
+}
+
+/**
+ * One-click login into the synthetic demo school (for sales demos and the demo video). Only works when
+ * DEMO_LOGIN=1, and only for users whose every membership is in a demo school, so it can never open a real school.
+ */
+export async function demoLogin(db: Db, role: StaffRole, deviceInfo: string | null) {
+  if (!demoLoginEnabled()) throw new AuthError("Demo login is switched off on this server.");
+  const rows = await db
+    .select({ userId: s.memberships.userId, schoolId: s.memberships.schoolId, isDemo: s.schools.isDemo })
+    .from(s.memberships)
+    .innerJoin(s.schools, eq(s.schools.id, s.memberships.schoolId))
+    .where(and(eq(s.memberships.role, role), eq(s.memberships.status, "active"), eq(s.schools.isDemo, true)))
+    .limit(1);
+  const m = rows[0];
+  if (!m) throw new AuthError("The demo school is not set up. Run pnpm db:seed.");
+  const all = await db.select({ isDemo: s.schools.isDemo }).from(s.memberships).innerJoin(s.schools, eq(s.schools.id, s.memberships.schoolId)).where(eq(s.memberships.userId, m.userId));
+  if (all.some((x) => !x.isDemo)) throw new AuthError("Not a demo account.");
+  const token = randomBytes(32).toString("base64url");
+  await db.insert(s.sessions).values({
+    tokenHash: sha256(token), userId: m.userId, activeSchoolId: m.schoolId, expiresAt: new Date(Date.now() + 12 * 3600_000), deviceInfo: deviceInfo?.slice(0, 200) ?? null,
+  });
+  return { token };
 }
