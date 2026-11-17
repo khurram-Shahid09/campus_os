@@ -39,7 +39,7 @@ export function Register({ sectionId, title, date, students, initial }: {
     try {
       const r = await syncAttendanceAction(payload);
       if (r.error) return setState({ kind: "error", text: r.error });
-      setState({ kind: "saved", text: `Saved. ${r.absent} absent${r.alerts ? `, ${r.alerts} parent message${r.alerts === 1 ? "" : "s"} ready in WhatsApp outbox` : ""}.` });
+      setState({ kind: "saved", text: `Saved. ${r.absent} absent${r.alerts ? `; ${r.alerts} parent${r.alerts === 1 ? "" : "s"} told on WhatsApp` : ""}.` });
       router.refresh();
     } catch {
       enqueue(payload);

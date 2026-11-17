@@ -57,7 +57,7 @@ export default async function WhatsApp() {
             return (
               <li key={m.id} className="grid gap-2 py-3 sm:grid-cols-[170px_1fr_auto]">
                 <div className="text-xs">
-                  <p className="font-semibold text-ink">{triggerLabel(m.templateKey)}</p>
+                  <p className="font-semibold text-ink">{m.direction === "in" ? "From parent" : triggerLabel(m.templateKey)}</p>
                   <p className="text-muted">{m.createdAt.toLocaleString("en-GB", { timeZone: "Asia/Karachi", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</p>
                 </div>
                 <div className="min-w-0 text-sm">
@@ -68,6 +68,7 @@ export default async function WhatsApp() {
                   </p>
                   {b && <p className="mt-1" dir="rtl" lang="ur">{b.ur}</p>}
                   {b && <p className="whitespace-pre-line text-xs text-muted">{b.en}</p>}
+                  {!b && m.direction === "in" && <p className="mt-1 text-xs text-muted">Sent a payment screenshot (see Screenshots)</p>}
                 </div>
                 <div className="flex flex-col items-start gap-1 sm:items-end">
                   <Badge tone={st.tone}>{st.label}</Badge>
