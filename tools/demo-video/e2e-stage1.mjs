@@ -194,12 +194,12 @@ try {
     await expectText(cards.first(), /Class 1 A/);
   });
 
-  await check("teacher marks Omar absent and submits; parent message is queued", async () => {
+  await check("teacher marks Omar absent and submits; the parent is told on WhatsApp", async () => {
     await teacher.getByTestId("section-card").first().click();
     await teacher.getByTestId("student").filter({ hasText: "Omar" }).click();
     await shot(teacher, "register");
     await teacher.getByTestId("submit-attendance").click();
-    await expectText(teacher.getByTestId("attendance-done"), /1 absent, 1 parent message/);
+    await expectText(teacher.getByTestId("attendance-done"), /1 absent; 1 parent told on WhatsApp/);
   });
 
   await check("with no internet, the correction is saved on the phone and sent when back online", async () => {
