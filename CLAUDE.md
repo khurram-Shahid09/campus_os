@@ -41,7 +41,8 @@ Full index: [docs/00-index.md](docs/00-index.md)
 - pg-boss (Postgres-backed job queue) + a separate Node worker for scheduled/background jobs
 - S3-compatible object storage (Cloudflare R2) for receipt/register/answer-sheet images
 - WhatsApp Business Cloud API (primary channel), SMS as fallback
-- Claude API via `@anthropic-ai/sdk`, default model `claude-opus-5-5` (see docs/10 for per-task settings)
+- AI: free-tier Gemini during development (D18, `packages/ai`, key/model fallback); Claude API via `@anthropic-ai/sdk` planned (docs/10). Use a paid tier before real school data.
+- WhatsApp: `WHATSAPP_MODE=simulated` until the Business API is connected (D18)
 - PWA for teacher and parent screens
 
 ## Planned repo layout

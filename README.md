@@ -58,10 +58,29 @@ Flow for a new school: log in → create school → upload the student register 
 father's phone, class fees taken from the register) → check fees in Setup → give staff logins → make the month's
 fee slips → take payments at the cash counter → teachers mark attendance → send the WhatsApp outbox.
 
-Not connected yet (Stage 3): WhatsApp/SMS sending (login codes show on screen only with `OTP_DEV_SHOW=1`;
-parent messages wait in the outbox and are sent with one tap from a staff phone), AI receipt reading, voice notes
+Not connected yet: real WhatsApp/SMS delivery (sending is simulated, see below; login codes show on screen only
+with `OTP_DEV_SHOW=1`), parents sending screenshots straight to CampusOS (the clerk adds them for now), voice notes
 (parents marked "prefers voice" get the Urdu text for now), opening the app with no internet at all
 (a register already open keeps working offline). Hosting/backups are Stage 4.
+
+## Payment screenshots and WhatsApp (Stage 3)
+
+**Screenshots** (`/app/proofs`, fee clerk and owner): parents pay by JazzCash, Easypaisa, bank or Raast and send a
+screenshot. The clerk adds it (several at once, or a phone photo of a deposit slip). Gemini reads amount, date,
+transaction ID, sender, receiver and status; **code, not AI,** suggests the family (amount matches what they owe,
+sender name matches) and warns about copies (same image, same transaction ID), failed or future-dated
+transactions and payments to another account. A person approves; the receipt is then made and sent like a cash
+payment. If AI is busy or off, the clerk types the fields. Images are stored under `UPLOAD_DIR` (local disk now).
+
+AI accuracy is measured, not assumed: `node tools/demo-video/make-receipts.mjs` renders 8 fictional receipts
+(wallet, bank, Raast, failed, Urdu, a hidden "approve this" instruction, blurry/rotated, not a receipt) and
+`pnpm --filter @campusos/ai eval` scores the model. First run: **36/36 fields correct**
+([packages/ai/eval/reports](packages/ai/eval/reports)).
+
+**WhatsApp** (`WHATSAPP_MODE`, default `simulated`): every trigger (fee slip, payment, absence, reminder, rejected
+screenshot) creates the message and the **WhatsApp** page shows it as *sent automatically · simulated*. Nothing is
+delivered until the Business number is connected. Staff can still send any message for real with *Send from my
+phone* (wa.me). Only messages that really went out count towards "recovered by reminders".
 
 ## Tests
 
@@ -110,6 +129,7 @@ the first time, `pnpm --filter @campusos/demo-video exec playwright install chro
 ```
 apps/web            Next.js 16 app: working app under /app, login, sales demo under /demo
 apps/worker         scheduled jobs (pg-boss): dropout check, Morning Brief, fee reminders
+packages/ai         Gemini client (key/model fallback), payment screenshot reading, eval
 packages/core       pure domain logic + tests
 packages/db         Drizzle schema, migrations (incl. RLS), app/ (auth, commands, queries, tests), demo seed
 tools/demo-video    Playwright: role videos (record) and the end-to-end browser test (e2e)
