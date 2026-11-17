@@ -19,6 +19,8 @@ const ITEMS: { href: string; label: string; perm: Action }[] = [
   { href: "/app/calls", label: "Calls", perm: "attendance.mark.any" },
   { href: "/app/outbox", label: "WhatsApp", perm: "messages.send" },
   { href: "/app/automation", label: "Automation", perm: "attendance.mark.any" },
+  { href: "/app/reports", label: "Reports", perm: "fees.view" },
+  { href: "/app/savings", label: "Savings", perm: "dashboard.owner" },
   { href: "/app/setup", label: "Setup", perm: "school.setup" },
 ];
 
@@ -42,6 +44,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
         <AppNav items={items.map(({ href, label }) => ({ href, label, badge: href === "/app/outbox" ? outbox : href === "/app/proofs" ? proofs : 0 }))} />
       </header>
+      {session.school?.isDemo && (
+        <div className="bg-ink px-4 py-1.5 text-center text-xs font-semibold text-white print:hidden" data-testid="demo-banner">
+          DEMO SCHOOL · made-up students, parents and numbers · nothing here is a real school
+        </div>
+      )}
       <SyncBanner />
       <main className="mx-auto max-w-6xl px-4 py-5 print:max-w-none print:p-0">{children}</main>
     </div>

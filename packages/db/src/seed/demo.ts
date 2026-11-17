@@ -7,7 +7,7 @@
  * the same way the real features will write them.
  */
 import { randomUUID } from "node:crypto";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   absenceAlertText,
   daysBetween,
@@ -18,15 +18,31 @@ import {
   paymentCodeFor,
   receiptText,
   scoreRisk,
+  todayIn,
 } from "@campusos/core";
 import { createDb } from "../index";
+import { runDueJobs } from "../app/automation";
 import * as s from "../schema/index";
 
 const DEMO_SLUG = "demo-grammar-school";
-const AS_OF = new Date(Date.UTC(2026, 10, 17)); // 2026-11-17
-const CAMPUSOS_LIVE = new Date(Date.UTC(2026, 8, 1)); // 2026-09-01
-const FIRST_PERIOD = { y: 2025, m: 10 }; // 14 months: 2025-10 .. 2026-11
-const MONTHS = 14;
+/**
+ * The demo always ends "today" (Pakistan time), so the working app shows it as live data. Override with
+ * DEMO_AS_OF=YYYY-MM-DD. Sunday is the weekly holiday, so a Sunday moves back to Saturday.
+ */
+const AS_OF = (() => {
+  const d = process.env.DEMO_AS_OF ? new Date(`${process.env.DEMO_AS_OF}T00:00:00Z`) : todayIn("Asia/Karachi");
+  return d.getUTCDay() === 0 ? new Date(d.getTime() - 86_400_000) : d;
+})();
+/** CampusOS "went live" on the 1st, two months before this month: history before that is the paper era. */
+const CAMPUSOS_LIVE = new Date(Date.UTC(AS_OF.getUTCFullYear(), AS_OF.getUTCMonth() - 2, 1));
+const MONTHS = 14; // 13 months of history + this month
+const FIRST_PERIOD = (() => {
+  const d = new Date(Date.UTC(AS_OF.getUTCFullYear(), AS_OF.getUTCMonth() - (MONTHS - 1), 1));
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 };
+})();
+/** academic year starts in April */
+const YEAR_START = new Date(Date.UTC(AS_OF.getUTCMonth() >= 3 ? AS_OF.getUTCFullYear() : AS_OF.getUTCFullYear() - 1, 3, 1));
+const DEMO_PHONES = { owner: "+923000000001", principal: "+923000000002", accountant: "+923000000003", teacher: "+923000000004" } as const;
 const TARGET_STUDENTS = 620;
 const PRICE_PER_STUDENT_MINOR = 3000; // Rs 30 (docs/17 A3, ASSUMPTION)
 
@@ -75,7 +91,11 @@ async function main() {
     ] as const;
     for (const t of tenantTables) await db.delete(t).where(eq(t.schoolId, sid));
     await db.delete(s.schools).where(eq(s.schools.id, sid));
-    await db.delete(s.users).where(inArray(s.users.phoneE164, ["+923000000001", "+923000000002", "+923000000003"]));
+    await db.delete(s.jobRuns).where(eq(s.jobRuns.schoolId, sid));
+    await db.delete(s.schoolCounters).where(eq(s.schoolCounters.schoolId, sid));
+    const demoUsers = await db.select({ id: s.users.id }).from(s.users).where(inArray(s.users.phoneE164, Object.values(DEMO_PHONES)));
+    if (demoUsers.length) await db.delete(s.sessions).where(inArray(s.sessions.userId, demoUsers.map((u) => u.id)));
+    await db.delete(s.users).where(inArray(s.users.phoneE164, Object.values(DEMO_PHONES)));
   }
 
   // ---------- school + leaders ----------
@@ -87,28 +107,36 @@ async function main() {
     isDemo: true,
     status: "trial",
     settings: {
-      campusosLiveOn: "2026-09-01",
-      demoAsOf: "2026-11-17",
+      campusosLiveOn: iso(CAMPUSOS_LIVE),
+      demoAsOf: iso(AS_OF),
+      city: "Lahore",
+      dueDay: 10,
       pricePerStudentMinor: PRICE_PER_STUDENT_MINOR,
       quietHours: { start: "21:00", end: "08:00" },
       briefTime: "07:30",
     },
   });
-  const ownerId = randomUUID();
+  // demo logins, one per role (fake numbers; the working app offers them as one-click demo logins)
+  const userIds = { owner: randomUUID(), principal: randomUUID(), accountant: randomUUID(), teacher: randomUUID() };
   await db.insert(s.users).values([
-    { id: ownerId, phoneE164: "+923000000001", name: "Demo Owner" },
-    { id: randomUUID(), phoneE164: "+923000000002", name: "Demo Principal" },
-    { id: randomUUID(), phoneE164: "+923000000003", name: "Demo Accountant" },
+    { id: userIds.owner, phoneE164: DEMO_PHONES.owner, name: "Demo Owner" },
+    { id: userIds.principal, phoneE164: DEMO_PHONES.principal, name: "Demo Principal" },
+    { id: userIds.accountant, phoneE164: DEMO_PHONES.accountant, name: "Demo Fee Clerk" },
+    { id: userIds.teacher, phoneE164: DEMO_PHONES.teacher, name: "Ms. Demo Teacher" },
   ]);
-  await db.insert(s.memberships).values({ schoolId, userId: ownerId, role: "owner" });
+  await db.insert(s.memberships).values(
+    (Object.keys(userIds) as (keyof typeof userIds)[]).map((role) => ({ schoolId, userId: userIds[role], role })),
+  );
 
   const yearId = randomUUID();
-  await db.insert(s.academicYears).values({ id: yearId, schoolId, name: "2026-27", startsOn: utc(2026, 4, 1), endsOn: utc(2027, 3, 31), isCurrent: true });
+  await db.insert(s.academicYears).values({ id: yearId, schoolId, name: `${YEAR_START.getUTCFullYear()}-${String((YEAR_START.getUTCFullYear() + 1) % 100).padStart(2, "0")}`,
+    startsOn: YEAR_START, endsOn: new Date(Date.UTC(YEAR_START.getUTCFullYear() + 1, 2, 31)), isCurrent: true });
 
   // ---------- classes + sections + fees ----------
   const classNames = ["Nursery", "Prep", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7"];
   const tuitionHeadId = randomUUID();
   await db.insert(s.feeHeads).values({ id: tuitionHeadId, schoolId, name: "Tuition", frequency: "monthly" });
+  await db.update(s.schools).set({ settings: sql`${s.schools.settings} || ${JSON.stringify({ tuitionHeadId })}::jsonb` }).where(eq(s.schools.id, schoolId));
 
   const sectionRows: { id: string; classId: string; level: number; feeMinor: number }[] = [];
   for (const [i, name] of classNames.entries()) {
@@ -136,6 +164,9 @@ async function main() {
   for (const [i, sec] of sectionRows.entries()) {
     await db.update(s.sections).set({ classTeacherStaffId: staffRows[i]!.id }).where(eq(s.sections.id, sec.id));
   }
+  // the demo teacher login is class teacher of the last section, which is left unmarked today
+  const teacherStaff = staffRows[sectionRows.length - 1]!;
+  await db.update(s.staff).set({ userId: userIds.teacher, name: "Ms. Demo Teacher" }).where(eq(s.staff.id, teacherStaff.id));
 
   // ---------- families + students ----------
   interface Kid { id: string; name: string; gender: "M" | "F"; sectionIdx: number; feeMinor: number; discountPct: number; withdrawnOn: Date | null; profile: Profile }
@@ -175,7 +206,7 @@ async function main() {
       const sec = sectionRows[sectionIdx]!;
       const girl = chance(0.5);
       const discountPct = staffChild ? 50 : k > 0 ? 10 : chance(0.04) ? 25 : 0;
-      const withdrawnOn = profile === "leaving" && k === 0 ? addDays(utc(2026, 9, 15), int(0, 50)) : null;
+      const withdrawnOn = profile === "leaving" && k === 0 ? addDays(CAMPUSOS_LIVE, 14 + int(0, 50)) : null;
       const kidName = `${girl ? pick(GIRLS) : pick(BOYS)} ${surname}`;
       studentRows.push({
         id, schoolId, familyId: famId, admissionNo: `DGS-${admission++}`, name: kidName,
@@ -261,8 +292,8 @@ async function main() {
         case "good": payDelay = chance(0.9) ? int(-9, 0) : int(5, 25); break;
         case "late": payDelay = live ? int(4, 14) : int(15, 50); break;
         case "defaulter": payDelay = live ? (chance(0.55) ? int(5, 20) : null) : chance(0.35) ? int(30, 80) : null; break;
-        case "leaving": payDelay = issue >= utc(2026, 7, 1) ? null : int(10, 40); break;
-        case "at_risk": payDelay = issue >= utc(2026, 9, 1) ? null : int(0, 20); break;
+        case "leaving": payDelay = issue >= new Date(Date.UTC(CAMPUSOS_LIVE.getUTCFullYear(), CAMPUSOS_LIVE.getUTCMonth() - 2, 1)) ? null : int(10, 40); break;
+        case "at_risk": payDelay = issue >= CAMPUSOS_LIVE ? null : int(0, 20); break;
       }
       const paidOn = payDelay === null ? null : addDays(due, payDelay);
       const paidInTime = paidOn !== null && paidOn <= AS_OF;
@@ -343,7 +374,10 @@ async function main() {
   }
   await insertChunks(db, s.invoices, invoiceRows);
   await insertChunks(db, s.invoiceLines, lineRows);
+  // running receipt numbers, oldest first, as the cash counter gives them
+  paymentRows.sort((a, b) => +a.paidOn! - +b.paidOn!).forEach((p, i) => (p.receiptNo = i + 1));
   await insertChunks(db, s.payments, paymentRows);
+  await db.insert(s.schoolCounters).values({ schoolId, key: "receipt_no", value: paymentRows.length });
   await insertChunks(db, s.paymentAllocations, allocRows);
   await insertChunks(db, s.reminderEvents, reminderRows);
 
@@ -358,13 +392,18 @@ async function main() {
     const guardian = guardianRows.find((g) => g.id === fam.guardianId)!;
     // The third screenshot is a reused one: identical to a proof approved 3 weeks ago.
     const reused = i === 2;
+    // same shape as a real AI reading, but labelled source "demo" (pre-filled, not read by a model)
+    const base = {
+      source: "demo", method: i === 1 ? "bank_transfer" : "mobile_wallet", provider: banks[i]!, bank: banks[i]!, senderName: guardian.name,
+      receiverName: "Demo Grammar School", status: "successful", isPaymentReceipt: true,
+    };
     const extracted = reused
-      ? { source: "demo", amountMinor: 250_000, date: iso(addDays(AS_OF, -21)), reference: "TRX48229329", bank: banks[i]!, senderName: guardian.name, confidence: 0.95 }
-      : { source: "demo", amountMinor: inv.balanceMinor, date: iso(AS_OF), reference: `TRX${String(48213907 + i * 7711)}`, bank: banks[i]!, senderName: guardian.name, confidence: 0.94 - i * 0.03 };
+      ? { ...base, amountMinor: 250_000, date: iso(addDays(AS_OF, -21)), reference: "TRX48229329", referenceNorm: "48229329", confidence: 0.95 }
+      : { ...base, amountMinor: inv.balanceMinor!, date: iso(AS_OF), reference: `TRX${String(48213907 + i * 7711)}`, referenceNorm: String(48213907 + i * 7711), confidence: 0.94 - i * 0.03 };
     const imageKey = demoReceiptImageKey({ amountMinor: extracted.amountMinor, reference: extracted.reference, kind: extracted.bank, date: extracted.date });
     proofRows.push({
       schoolId, familyId: fam.id, guardianId: fam.guardianId, imageKey, imageHash: reused ? "demo-hash-reused" : `demo-hash-${i}`,
-      suggestedFamilyId: fam.id, status: "pending", createdAt: at, extracted,
+      suggestedFamilyId: fam.id, status: "pending", createdAt: at, extracted, referenceNorm: extracted.referenceNorm, imageMime: "image/svg+xml",
     });
     messageRows.push({
       schoolId, familyId: fam.id, guardianId: fam.guardianId, toPhone: fam.phone, direction: "in", channel: "whatsapp",
@@ -373,7 +412,7 @@ async function main() {
     if (reused) {
       proofRows.push({
         schoolId, familyId: owing[0]?.id, imageKey, imageHash: "demo-hash-reused", status: "approved",
-        reviewedAt: addDays(AS_OF, -21), createdAt: addDays(AS_OF, -21), extracted,
+        reviewedAt: addDays(AS_OF, -21), createdAt: addDays(AS_OF, -21), extracted, referenceNorm: extracted.referenceNorm, imageMime: "image/svg+xml",
       });
     }
   }
@@ -383,7 +422,7 @@ async function main() {
   const days: Date[] = [];
   for (let d = addDays(AS_OF, -100); d <= AS_OF; d = addDays(d, 1)) {
     const wd = d.getUTCDay();
-    if (wd !== 0 && wd !== 6) days.push(d);
+    if (wd !== 0) days.push(d); // Monday-Saturday
   }
   const kidsBySection = new Map<number, Kid[]>();
   for (const k of fams.flatMap((f) => f.kids)) {
@@ -470,8 +509,50 @@ async function main() {
     }
   }
   await insertChunks(db, s.riskScores, riskRows);
+
+  // ---------- past principal calls (dropout follow-ups) since CampusOS went live ----------
+  const followRows: (typeof s.riskFollowups.$inferInsert)[] = [];
+  const callKids = fams.filter((f) => f.profile === "late").flatMap((f) => f.kids.filter((k) => !k.withdrawnOn)).slice(0, 7);
+  const outcomes = ["will_return", "will_return", "fee_plan_agreed", "will_return", "fee_plan_agreed", "no_answer", "will_return"] as const;
+  for (const [i, k] of callKids.entries()) {
+    const at = new Date(addDays(AS_OF, -(6 + i * 5)).getTime() + 6 * 3600_000);
+    if (at < CAMPUSOS_LIVE) continue;
+    followRows.push({ schoolId, studentId: k.id, action: "called", outcome: outcomes[i]!, byRole: "principal", createdAt: at });
+    if (outcomes[i] === "will_return" || outcomes[i] === "fee_plan_agreed") {
+      roiRows.push({ schoolId, kind: "student_kept", refTable: "students", refId: k.id, occurredAt: at });
+    }
+  }
+  await insertChunks(db, s.riskFollowups, followRows);
   await insertChunks(db, s.roiEvents, roiRows);
   await insertChunks(db, s.messages, messageRows);
+
+  // ---------- automation history (last 14 days, from the seeded data) + today's real jobs ----------
+  const high = riskRows.filter((r) => r.band === "high").length;
+  const watch = riskRows.filter((r) => r.band === "watch").length;
+  const remindersByDay = new Map<string, { messages: number; calls: number }>();
+  for (const r of reminderRows) {
+    const k = iso(r.sentAt as Date);
+    const v = remindersByDay.get(k) ?? { messages: 0, calls: 0 };
+    if (r.channel === "ivr_call" || r.channel === "principal_call") v.calls++;
+    else v.messages++;
+    remindersByDay.set(k, v);
+  }
+  const runRows: (typeof s.jobRuns.$inferInsert)[] = [];
+  for (let n = 14; n >= 1; n--) {
+    const day = addDays(AS_OF, -n);
+    if (day.getUTCDay() === 0) continue;
+    const at = (h: number) => new Date(day.getTime() + (h - 5) * 3600_000); // local hour -> UTC
+    runRows.push({ schoolId, job: "risk_scores", runOn: day, status: "done", result: { scored: riskRows.length, high, watch }, startedAt: at(2), finishedAt: at(2) });
+    runRows.push({ schoolId, job: "morning_brief", runOn: day, status: "done", result: { owners: 1 }, startedAt: at(7), finishedAt: at(7) });
+    runRows.push({ schoolId, job: "fee_reminders", runOn: day, status: "done", result: { ...(remindersByDay.get(iso(day)) ?? { messages: 0, calls: 0 }), families: 0 }, startedAt: at(10), finishedAt: at(10) });
+  }
+  await insertChunks(db, s.jobRuns, runRows);
+  // today: the real jobs run on the seeded data (risk scores, then the Morning Brief built from them)
+  const now = new Date(AS_OF.getTime() + 4 * 3600_000); // 09:00 Karachi
+  for (const only of ["risk_scores", "morning_brief"] as const) {
+    const rep = await runDueJobs(db, { now, schoolId, only, includeDemo: true });
+    if (rep[0]?.status !== "done") console.warn(`demo ${only}:`, rep[0]?.error ?? "did not run");
+  }
 
   const recovered = roiRows.filter((r) => r.kind === "fee_recovered").reduce((a, r) => a + (r.valueMinor ?? 0), 0);
   console.log(`Demo school seeded: ${studentCount} students, ${fams.length} families, ${invoiceRows.length} invoices, ` +

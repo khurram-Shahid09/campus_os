@@ -263,12 +263,13 @@ async function claim(db: Db, c: SchoolCtx, job: string): Promise<string | null> 
  * Runs every job that is due for every school. Safe to call as often as you like (the worker calls it every
  * 10 minutes): each job runs once per school per local day. `only` forces one job now (manual "run now").
  */
-export async function runDueJobs(db: Db, opts: { now?: Date; schoolId?: string; only?: JobName } = {}) {
+/** `includeDemo` is only for the demo seed: the scheduled worker never touches the demo school. */
+export async function runDueJobs(db: Db, opts: { now?: Date; schoolId?: string; only?: JobName; includeDemo?: boolean } = {}) {
   const now = opts.now ?? new Date();
   const schools = await db
     .select()
     .from(s.schools)
-    .where(and(eq(s.schools.isDemo, false), ...(opts.schoolId ? [eq(s.schools.id, opts.schoolId)] : [])));
+    .where(and(...(opts.includeDemo ? [] : [eq(s.schools.isDemo, false)]), ...(opts.schoolId ? [eq(s.schools.id, opts.schoolId)] : [])));
   const report: { school: string; job: string; status: string; result?: unknown; error?: string }[] = [];
   for (const sc of schools) {
     const c: SchoolCtx = { schoolId: sc.id, schoolName: sc.name, today: todayIn(sc.timezone, now), settings: (sc.settings ?? {}) as SchoolCtx["settings"] };
