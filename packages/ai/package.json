@@ -1,0 +1,21 @@
+{
+  "name": "@campusos/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "eval": "tsx --env-file=../../.env src/eval/run.ts"
+  },
+  "dependencies": {
+    "@campusos/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.23.15",
+    "vitest": "4.1.1"
+  }
+}
