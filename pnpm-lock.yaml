@@ -175,6 +175,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@campusos/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@campusos/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -228,6 +231,19 @@ importers:
       tsx:
         specifier: 4.23.15
         version: 4.23.15
+
+  packages/ai:
+    dependencies:
+      '@campusos/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      tsx:
+        specifier: 4.23.15
+        version: 4.23.15
+      vitest:
+        specifier: 4.1.1
+        version: 4.1.1(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(vite@8.3.8(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
 
   packages/core:
     devDependencies:

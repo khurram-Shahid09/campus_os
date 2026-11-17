@@ -9,7 +9,9 @@ try {
 }
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@campusos/core", "@campusos/db"],
+  transpilePackages: ["@campusos/core", "@campusos/db", "@campusos/ai"],
+  // phone screenshots are often 2-5 MB
+  experimental: { serverActions: { bodySizeLimit: "9mb" } },
   serverExternalPackages: ["postgres"],
 };
 

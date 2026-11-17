@@ -11,6 +11,7 @@
     "test": "echo \"no web tests yet\""
   },
   "dependencies": {
+    "@campusos/ai": "workspace:*",
     "@campusos/core": "workspace:*",
     "@campusos/db": "workspace:*",
     "@next/env": "16.4.6",
