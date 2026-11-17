@@ -70,9 +70,9 @@ async function currentYear(tx: Tx, ctx: AppCtx) {
  * Queue a WhatsApp message to a family's primary guardian. Until the WhatsApp API is connected, messages wait
  * in the outbox and staff send them with one tap (wa.me link) from their own phone.
  */
-async function queueToFamily(
+export async function queueToFamily(
   tx: Tx,
-  ctx: AppCtx,
+  ctx: Pick<AppCtx, "schoolId">,
   familyId: string,
   m: { category: string; templateKey: string; body: Bilingual; payload?: unknown },
 ) {
@@ -476,7 +476,8 @@ export async function recordPayment(
   const { allocations, advanceMinor } = allocatePayment(input.amountMinor, open);
 
   const [lastReminder] = await tx.select({ id: s.reminderEvents.id, sentAt: s.reminderEvents.sentAt }).from(s.reminderEvents)
-    .where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.familyId, input.familyId)))
+    // only reminders that really went out count (queued-but-unsent or skipped ones are not credited)
+    .where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.familyId, input.familyId), eq(s.reminderEvents.outcome, "sent")))
     .orderBy(desc(s.reminderEvents.sentAt)).limit(1);
   const attributed = isRecoveredByReminder(ctx.today, lastReminder?.sentAt ?? null);
   const receiptNo = await nextCounter(tx, ctx, "receipt_no");
@@ -668,6 +669,47 @@ export async function markMessageSent(tx: Tx, ctx: AppCtx, input: { messageId: s
     .set({ status: input.skipped ? "skipped" : "sent_manual", sentAt: new Date(), payload: sql`coalesce(${s.messages.payload}, '{}'::jsonb) || ${JSON.stringify({ sentBy: ctx.userId })}::jsonb` })
     .where(and(eq(s.messages.schoolId, ctx.schoolId), eq(s.messages.id, input.messageId), eq(s.messages.status, "outbox")));
   if (!input.skipped) await tx.insert(s.roiEvents).values({ schoolId: ctx.schoolId, kind: "reminder_automated", refTable: "messages", refId: input.messageId, occurredAt: new Date() });
+  // a scheduled fee reminder counts from when it was actually sent (payment attribution uses this time)
+  await tx.update(s.reminderEvents)
+    .set({ outcome: input.skipped ? "skipped" : "sent", sentAt: new Date() })
+    .where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.messageId, input.messageId), eq(s.reminderEvents.outcome, "queued")));
+}
+
+// ======================= follow-up calls =======================
+
+/** Principal/owner logs the result of a call about a student who may leave. */
+export async function logRiskFollowup(
+  tx: Tx,
+  ctx: AppCtx,
+  input: { studentId: string; outcome: "will_return" | "fee_plan_agreed" | "leaving" | "no_answer"; notes?: string },
+) {
+  assertCan(ctx, "attendance.mark.any");
+  const [st] = await tx.select({ id: s.students.id }).from(s.students).where(and(eq(s.students.schoolId, ctx.schoolId), eq(s.students.id, input.studentId)));
+  if (!st) throw new AppError("Student not found.");
+  await tx.insert(s.riskFollowups).values({ schoolId: ctx.schoolId, studentId: st.id, action: "called", outcome: input.outcome, notes: input.notes?.trim() || null, byRole: ctx.role });
+  if (input.outcome === "will_return" || input.outcome === "fee_plan_agreed") {
+    await tx.insert(s.roiEvents).values({ schoolId: ctx.schoolId, kind: "student_kept", refTable: "students", refId: st.id, occurredAt: new Date() });
+  }
+  await audit(tx, ctx, "followup", "students", st.id, null, input);
+}
+
+/** Result of a principal's fee call (reminder step 3). A promise to pay pauses reminders until that date. */
+export async function logFeeCall(
+  tx: Tx,
+  ctx: AppCtx,
+  input: { reminderEventId: string; outcome: "promised" | "no_answer" | "refused"; promisedOn?: Date | null; amountMinor?: number | null },
+) {
+  assertCan(ctx, "messages.send");
+  const [ev] = await tx.select().from(s.reminderEvents).where(and(eq(s.reminderEvents.schoolId, ctx.schoolId), eq(s.reminderEvents.id, input.reminderEventId)));
+  if (!ev || ev.channel !== "principal_call") throw new AppError("Call not found.");
+  if (input.outcome === "promised") {
+    if (!input.promisedOn || input.promisedOn.getTime() < ctx.today.getTime()) throw new AppError("Choose the date they promised to pay.");
+    await tx.insert(s.promisesToPay).values({
+      schoolId: ctx.schoolId, familyId: ev.familyId, promisedOn: input.promisedOn, amountMinor: input.amountMinor ?? 0, createdVia: "principal_call",
+    });
+  }
+  await tx.update(s.reminderEvents).set({ outcome: input.outcome === "promised" ? "promised" : input.outcome, sentAt: new Date() }).where(eq(s.reminderEvents.id, ev.id));
+  await audit(tx, ctx, "fee_call", "reminder_events", ev.id, { outcome: ev.outcome }, input);
 }
 
 /** Text for a reminder to one family about everything they owe (computed in SQL, worded by template). */

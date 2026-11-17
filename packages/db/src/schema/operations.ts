@@ -151,3 +151,21 @@ export const roiEvents = pgTable(
   },
   (t) => [index("roi_events_school_kind_time").on(t.schoolId, t.kind, t.occurredAt)],
 );
+
+/** One row per school, job and local day: makes scheduled jobs run once, and shows the owner what ran. */
+export const jobRuns = pgTable(
+  "job_runs",
+  {
+    id: id(),
+    schoolId: schoolId(),
+    job: text("job").notNull(), // risk_scores|morning_brief|fee_reminders
+    runOn: date("run_on", { mode: "date" }).notNull(),
+    status: text("status").notNull().default("running"), // running|done|failed|skipped
+    result: jsonb("result"),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(1),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("job_runs_school_job_day").on(t.schoolId, t.job, t.runOn)],
+);
