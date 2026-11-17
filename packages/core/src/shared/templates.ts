@@ -59,8 +59,8 @@ export function balanceReplyText(p: { balanceMinor: Minor; months: number }): Bi
 export function feeSlipText(p: { period: string; amountMinor: Minor; dueDay: number; code: string }): Bilingual {
   const m = monthOf(p.period);
   return {
-    ur: `${m.ur} کی فیس: ${rs(p.amountMinor)} روپے۔ آخری تاریخ ${p.dueDay} ${m.ur}۔ ادائیگی کوڈ: ${p.code}`,
-    en: `${m.en} fee: Rs ${rs(p.amountMinor)}. Due ${p.dueDay} ${m.en}. Payment code: ${p.code}`,
+    ur: `${m.ur} کی فیس: ${rs(p.amountMinor)} روپے۔ آخری تاریخ ${p.dueDay} ${m.ur}۔ سلپ نمبر: ${p.code}`,
+    en: `${m.en} fee: Rs ${rs(p.amountMinor)}. Due ${p.dueDay} ${m.en}. Slip no.: ${p.code}`,
   };
 }
 
