@@ -149,8 +149,10 @@ node tools/demo-video/owner-video.mjs          # app on :3000 with DEMO_LOGIN=1;
 ```
 
 Records one school day in the real app (Morning Brief, teacher attendance, cash counter, payment screenshots,
-reminders, principal's calls, owner decisions, Savings) and writes `demo-videos/campusos-owner.mp4`
-(portrait 720x1280, H.264 + AAC). The voice is Gemini text-to-speech, cached in `demo-videos/voice/`; spoken
+reminders, principal's calls, owner decisions, Savings) and writes the video
+(portrait 720x1280, H.264 + AAC) as `demo-videos/campusos-owner-<voice>.mp4`. The voice is Gemini text-to-speech
+(default **Iapetus**, a light clear male voice; change with `VOICE_NAME`, speed with `VOICE_TEMPO`), cached in `demo-videos/voice/`.
+Only the words are sent to the voice model, and every clip is transcribed and compared with the script before use; spoken
 savings figures are read from the database during recording, so they match the screen. Title and end cards say
 "demo school, made-up data, AI voice", and the voice says WhatsApp sending is simulated in the demo.
 

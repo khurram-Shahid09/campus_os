@@ -5,7 +5,8 @@
  *   (app running on :3000 with DEMO_LOGIN=1)
  *   node tools/demo-video/owner-video.mjs
  *
- * Output: demo-videos/campusos-owner.mp4 (portrait 720x1280, H.264 + AAC, WhatsApp friendly).
+ * Output: demo-videos/campusos-owner-<voice>.mp4 (portrait 720x1280, H.264 + AAC, WhatsApp friendly).
+ * VOICE_NAME picks the Gemini voice (default Iapetus: light, clear male); VOICE_TEMPO the speed (default 1.0).
  * Voice clips come from Gemini text-to-speech and are cached in demo-videos/voice/ by text, so re-recording is free.
  * Spoken numbers are read from the database during recording, so the voice always matches the screen.
  */
@@ -26,8 +27,12 @@ const OUT = path.join(ROOT, "demo-videos");
 const VOICE_DIR = path.join(OUT, "voice");
 mkdirSync(VOICE_DIR, { recursive: true });
 const SIZE = { width: 720, height: 1280 };
-const VOICE = process.env.VOICE_NAME ?? "Charon";
-const TEMPO = Number(process.env.VOICE_TEMPO ?? 1.1);
+const VOICE = process.env.VOICE_NAME ?? "Iapetus";
+/** 0.95 = a little slower than normal, easier for listeners whose first language is Urdu */
+const TEMPO = Number(process.env.VOICE_TEMPO ?? 0.95);
+// Only the words to say are sent. Any instruction in the text ("speak slowly...") can be read out loud by the model,
+// so pace is set with audio processing (TEMPO) instead, and every clip is checked by transcription (checkClip).
+const CLIP_VERSION = "v3";
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------- voice (Gemini TTS) ----------------
@@ -55,36 +60,67 @@ function wavMs(buf) {
   throw new Error("bad wav");
 }
 
-async function speak(text) {
-  const file = path.join(VOICE_DIR, `${createHash("sha256").update(`${VOICE}|${text}`).digest("hex").slice(0, 16)}.wav`);
-  if (!existsSync(file)) {
-    let last = "";
-    outer: for (const model of TTS_MODELS) {
-      for (const key of KEYS) {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `Read this at a natural, lively pace, warm and confident, like a friendly product guide talking to a busy school owner:\n${text}` }] }],
-            generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } } },
-          }),
-        });
-        const j = await r.json().catch(() => ({}));
-        const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
-        if (!r.ok || !part) { last = `${model}: ${j.error?.status ?? r.status}`; continue; }
-        const bytes = Buffer.from(part.data, "base64");
-        const rate = Number(/rate=(\d+)/.exec(part.mimeType)?.[1] ?? 24000);
-        writeFileSync(file, part.mimeType.includes("wav") ? bytes : wavFromPcm(bytes, rate));
-        break outer;
-      }
-    }
-    if (!existsSync(file)) throw new Error(`Voice failed for "${text.slice(0, 40)}…": ${last}`);
+const wordCount = (t) => t.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean).length;
+
+/** Transcribe a clip with Gemini and compare to the script: extra words mean the model added something. */
+async function checkClip(bytes, text) {
+  for (const model of ["gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash"]) for (const key of KEYS) {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key },
+      body: JSON.stringify({ contents: [{ parts: [{ inlineData: { mimeType: "audio/wav", data: bytes.toString("base64") } }, { text: "Transcribe this audio word for word. Output only the words." }] }] }),
+    });
+    const j = await r.json().catch(() => ({}));
+    const said = j.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!said) continue;
+    const ratio = wordCount(said) / wordCount(text);
+    return { ok: ratio > 0.85 && ratio < 1.15, said: said.trim(), ratio };
   }
-  // tighten: drop pauses longer than 0.6 s and speak 10% faster (still natural), so the video stays short
+  console.warn("voice check: no model available to transcribe; clip NOT checked");
+  return { ok: true, said: "(could not check)", ratio: 1 };
+}
+
+async function generate(text) {
+  let last = "";
+  for (const model of TTS_MODELS) {
+    for (const key of KEYS) {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICE } } } },
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      const part = j.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
+      if (!r.ok || !part) { last = `${model}: ${j.error?.status ?? r.status}`; continue; }
+      const bytes = Buffer.from(part.data, "base64");
+      const rate = Number(/rate=(\d+)/.exec(part.mimeType)?.[1] ?? 24000);
+      return part.mimeType.includes("wav") ? bytes : wavFromPcm(bytes, rate);
+    }
+  }
+  throw new Error(`Voice failed for "${text.slice(0, 40)}...": ${last}`);
+}
+
+async function speak(text) {
+  const file = path.join(VOICE_DIR, `${createHash("sha256").update(`${VOICE}|${CLIP_VERSION}|${text}`).digest("hex").slice(0, 16)}.wav`);
+  if (!existsSync(file)) {
+    for (let attempt = 1; ; attempt++) {
+      const wav = await generate(text);
+      const c = await checkClip(wav, text);
+      if (c.ok || attempt >= 4) {
+        if (!c.ok) console.warn(`voice check still off after ${attempt} tries (${c.ratio.toFixed(2)}): ${c.said}`);
+        writeFileSync(file, wav);
+        break;
+      }
+      console.warn(`voice said extra/missing words (${c.ratio.toFixed(2)}), retrying: ${c.said.slice(0, 80)}`);
+    }
+  }
+  // tighten: drop pauses longer than 0.9 s (dead air); speed from VOICE_TEMPO
   const tight = file.replace(/\.wav$/, `.t${TEMPO}.wav`);
   if (!existsSync(tight)) {
     const r = spawnSync(ffmpegPath, ["-y", "-i", file, "-af",
-      `silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.6:stop_threshold=-45dB,atempo=${TEMPO}`,
+      `silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.9:stop_threshold=-45dB,atempo=${TEMPO}`,
       "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", tight], { encoding: "utf8" });
     if (r.status !== 0) throw new Error(r.stderr.slice(-500));
   }
@@ -161,17 +197,18 @@ for (const role of ["owner", "teacher", "accountant", "principal"]) {
 }
 
 // voice for the fixed scenes, made before recording so each scene knows its length
+// simple English: short sentences, everyday words, no idioms
 const LINES = {
-  intro: "Fees come in late. Registers are on paper. And it's hard to know what's really happening in your school. CampusOS fixes that, and shows you exactly what it saves. Here's one school day.",
-  brief: "Seven a.m. Your Morning Brief is ready: yesterday's fees, attendance, late staff, and students who may leave. No logging in, no phone calls.",
-  teacher: "Eight o'clock. The teacher opens her class. Everyone is already present, so she taps only the absent children and submits. Seconds, even without internet. Parents are told on WhatsApp, in Urdu, automatically.",
-  cash: "At the fee counter, the clerk finds the family in a few keystrokes, saves the payment, and a numbered receipt is ready, with a copy on the parent's WhatsApp. No receipt books.",
-  proofs: "Parents who pay by JazzCash, Easypaisa or bank send a screenshot. CampusOS reads it, suggests the family, and the clerk approves with one tap.",
-  duplicate: "An old screenshot sent again? It's caught before it becomes a fake payment.",
-  reminders: "At ten, fee reminders go out by themselves: a polite message at three days late, a firmer one at ten. Every message is logged. In this demo, sending is simulated.",
-  calls: "If reminders don't work, the family goes to the principal's call list, together with students whose attendance is dropping. One timely call can keep a student for years.",
-  owner: "And you, the owner, decide what matters. No discount without your approval. Oldest unpaid fees first. One notice to every parent, with nothing to print.",
-  outro: "CampusOS. More fees collected, less paperwork, and a clear view of your school every morning. Contact Witnex Labs for a pilot.",
+  intro: "Running a school is hard. Fees come late. Registers are on paper. And it is hard to see what is really happening. CampusOS helps with all of this. Let us see one day in a school.",
+  brief: "It is seven in the morning. The owner gets a short report on WhatsApp. It shows yesterday's fees, attendance, and late staff. There is no need to log in.",
+  teacher: "At eight, the teacher opens her class on her phone. All children are marked present. She taps only the children who are absent, and presses submit. It takes a few seconds. Parents of absent children get a WhatsApp message in Urdu.",
+  cash: "At the fee counter, the clerk finds the family with the student's number. She saves the payment. A receipt is ready to print, and the parent also gets it on WhatsApp.",
+  proofs: "Many parents pay by JazzCash, Easypaisa, or bank. They send a photo of the receipt. CampusOS reads the photo and finds the family. The clerk checks it, and approves with one tap.",
+  duplicate: "If someone sends an old receipt again, CampusOS warns the clerk. So no fake payment gets in.",
+  reminders: "At ten, fee reminders go out by themselves. First a polite message. Later, a stronger one. You can see every message here. In this demo, the messages are not really sent.",
+  calls: "If a family still does not pay, the principal gets their name to call. The list also shows students who are often absent. One call at the right time can keep a student in school.",
+  owner: "The owner makes the big decisions. No discount is given without the owner's OK. The oldest unpaid fees are shown first. And one notice can reach every parent on WhatsApp.",
+  outro: "CampusOS. More fees on time. Less paperwork. A clear picture of your school, every morning. Contact Witnex Labs to try it in your school.",
 };
 const voice = {};
 for (const [k, t] of Object.entries(LINES)) {
@@ -242,16 +279,16 @@ async function scene(key, actions = async () => {}, tail = 700) {
 // 0. title
 await go("/app/brief");
 await card("CampusOS · by Witnex Labs", "The school that runs itself", [
-  "Recovers late fees automatically",
-  "Saves hours for teachers and office staff",
-  "Removes receipt books, registers and circulars",
-  "Shows the owner what it saved, every month",
+  "Brings back late fees",
+  "Saves time for teachers and office staff",
+  "No receipt books, registers or paper notices",
+  "Shows the owner what it saved",
 ], "Demo school with made-up students and numbers · voice is AI-generated");
 await scene("intro");
 await uncard();
 
 // 1. 07:00 Morning Brief (owner)
-await cap("7:00 · Your Morning Brief", "Yesterday's numbers, ready before you reach school");
+await cap("7:00 · Morning report", "Yesterday's numbers on your phone");
 await scene("brief", async () => {
   await wait(2500);
   await scrollTo('[data-testid="brief-text"]', 1200);
@@ -260,7 +297,7 @@ await scene("brief", async () => {
 
 // 2. 08:00 teacher
 capTop = true;
-await cap("8:00 · Teacher: attendance in seconds", "Tap only the absent children");
+await cap("8:00 · Attendance in seconds", "Tap only the absent children");
 await asRole("teacher", "/app/attendance");
 await scene("teacher", async () => {
   await wait(1200);
@@ -271,12 +308,12 @@ await scene("teacher", async () => {
   await click(kids.nth(14), 1200);
   await click('[data-testid="submit-attendance"]', 600);
   await page.waitForSelector('[data-testid="attendance-done"]');
-  await cap("Done. Parents of absent children told on WhatsApp", "Works offline too; syncs when the internet is back");
+  await cap("Done. Parents get a WhatsApp message", "Works without internet too");
 });
 capTop = false;
 
 // 3. 09:00 fee clerk: cash
-await cap("9:00 · Fee counter", "Search, save, receipt: under a minute");
+await cap("9:00 · Fee counter", "Find the family, save, receipt");
 await asRole("accountant", "/app/cash");
 // a family with one overdue month; searched by a child's GR number (names can repeat, GR numbers can't)
 const grNo = sql(`select min(st.admission_no) from students st join schools s on s.id = st.school_id
@@ -290,13 +327,13 @@ await scene("cash", async () => {
   await click('[data-testid="cash-submit"]', 300);
   await page.waitForURL(/receipts\//);
   await ready();
-  await cap("Receipt #, printed and sent to the parent's WhatsApp", "No receipt book");
+  await cap("Receipt ready, and sent on WhatsApp", "No receipt book");
   await wait(1800);
   await scrollTo('[data-testid="receipt"]', 800);
 });
 
 // 4. screenshots
-await cap("Payment screenshots", "Read, matched to the family, approved with one tap");
+await cap("Payment photos", "CampusOS reads them, the clerk approves");
 await go("/app/proofs");
 await scene("proofs", async () => {
   await wait(1200);
@@ -307,18 +344,18 @@ await scene("proofs", async () => {
   await wait(1200);
 });
 await go("/app/proofs");
-await cap("An old screenshot sent again?", "Caught before it becomes a fake payment");
+await cap("Old receipt sent again?", "CampusOS warns the clerk");
 await scene("duplicate", async () => {
   await scrollTo(page.getByTestId("proof-warnings").last(), 1500);
 });
 
 // numbers for the savings line: read now, after the payments above
 const nums = savingsNumbers();
-const savingsLine = `So, what did it save you? This month, CampusOS recovered ${words(nums.recoveredRs)} in late fees: about ${nums.multiple >= 2 ? Math.floor(nums.multiple) : nums.multiple} times what it costs. Time and paper savings are shown too, marked as estimates.`;
+const savingsLine = `Now the big question: what did CampusOS save? This month, it brought back ${words(nums.recoveredRs)} of late fees. That is about ${nums.multiple >= 2 ? Math.floor(nums.multiple) : nums.multiple} times its cost. Time and paper savings are also shown, marked as estimates.`;
 const savingsVoice = speak(savingsLine);
 
 // 5. 10:00 reminders + WhatsApp log (principal can see both)
-await cap("10:00 · Reminders go out by themselves", "Every message logged · simulated in this demo");
+await cap("10:00 · Fee reminders go out by themselves", "Not really sent in this demo");
 await asRole("principal", "/app/automation");
 await scene("reminders", async () => {
   await wait(3000);
@@ -328,7 +365,7 @@ await scene("reminders", async () => {
 });
 
 // 6. principal call list
-await cap("The principal's call list", "Fees reminders couldn't recover · students who may leave");
+await cap("The principal's call list", "Families to call · students often absent");
 await go("/app/calls");
 await scene("calls", async () => {
   await wait(3000);
@@ -337,7 +374,7 @@ await scene("calls", async () => {
 });
 
 // 7. owner decisions
-await cap("Owner: decisions, not paperwork", "Discounts need your OK · oldest money first · one-tap notices");
+await cap("The owner decides", "Discounts · old fees · notices");
 await asRole("owner", "/app");
 await scene("owner", async () => {
   await wait(1500);
@@ -348,7 +385,7 @@ await scene("owner", async () => {
 });
 
 // 8. savings
-await cap("What CampusOS saved you", "Money measured from records · time and paper labelled as estimates");
+await cap("What CampusOS saved", "Money from real records · time and paper are estimates");
 await go("/app/savings");
 await scene(await savingsVoice, async () => {
   await wait(4000);
@@ -370,7 +407,7 @@ await ctx.close();
 await browser.close();
 
 // ---------------- mix voice onto video ----------------
-const mp4 = path.join(OUT, "campusos-owner.mp4");
+const mp4 = path.join(OUT, `campusos-owner-${VOICE.toLowerCase()}.mp4`);
 const inputs = ["-y", "-i", videoPath, ...placed.flatMap((p) => ["-i", p.file])];
 const filters = placed.map((p, i) => `[${i + 1}:a]adelay=${p.atMs}|${p.atMs},aresample=48000[a${i}]`).join(";");
 const mix = `${filters};${placed.map((_, i) => `[a${i}]`).join("")}amix=inputs=${placed.length}:normalize=0:dropout_transition=0,volume=1.6[aout]`;
